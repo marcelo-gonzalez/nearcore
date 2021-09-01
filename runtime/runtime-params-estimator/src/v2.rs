@@ -1,16 +1,21 @@
 mod support;
 
 use std::convert::TryFrom;
+use std::sync::Arc;
 use std::time::Instant;
 
-use near_crypto::{KeyType, SecretKey};
+use genesis_populate::GenesisBuilder;
+use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
+use near_store::create_store;
+use nearcore::{get_store_path, load_config};
 use rand::Rng;
+use runtime_tester::{BlockConfig, NetworkConfig, Scenario, TransactionConfig};
 
 use crate::testbed_runners::Config;
 use crate::v2::support::{Ctx, GasCost};
@@ -299,11 +304,11 @@ fn action_deploy_contract_base(ctx: &mut Ctx) -> GasCost {
         deploy_contract(ctx, code)
     };
 
-    let base_cost = action_sir_receipt_creation(ctx);
+    // let base_cost = action_sir_receipt_creation(ctx);
 
-    let cost = total_cost - base_cost;
-    ctx.cached.action_deploy_contract_base = Some(cost.clone());
-    cost
+    // let cost = total_cost - base_cost;
+    // ctx.cached.action_deploy_contract_base = Some(cost.clone());
+    total_cost
 }
 
 fn action_deploy_contract_per_byte(ctx: &mut Ctx) -> GasCost {
@@ -393,23 +398,77 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
 }
 
 #[test]
-fn smoke() {
+fn slow() {
     use crate::testbed_runners::GasMetric;
-    use nearcore::get_default_home;
+
+    let tempdir = tempfile::tempdir().unwrap();
+    let p = tempdir.path();
+
+    nearcore::init_configs(
+        p, None, None, None, 1, true, None, false, None, false, None, None, None,
+    );
+
+    let near_config = load_config(p);
+    let store = create_store(&get_store_path(p));
+    GenesisBuilder::from_config_and_store(p, Arc::new(near_config.genesis), store.clone())
+        .add_additional_accounts(200_000)
+        .build()
+        .unwrap()
+        .dump_state()
+        .unwrap();
 
     let config = Config {
         warmup_iters_per_block: 1,
-        iter_per_block: 2,
+        iter_per_block: 150,
         active_accounts: 20000,
         block_sizes: vec![100],
-        state_dump_path: get_default_home().into(),
+        state_dump_path: p.to_path_buf(),
         metric: GasMetric::Time,
         vm_kind: near_vm_runner::VMKind::Wasmer0,
-        metrics_to_measure: Some(vec![
-            "ActionFunctionCallBase".to_string(),
-            "ActionFunctionCallPerByte".to_string(),
-        ]),
+        metrics_to_measure: Some(vec!["ActionDeployContractBase".to_string()]),
     };
-    let table = run(config);
-    eprintln!("{}", table);
+
+    tracing_span_tree::enable_aggregated();
+    let mut ctx = Ctx::new(&config);
+    action_deploy_contract_base(&mut ctx);
+}
+
+#[test]
+fn fast() {
+    let code = vec![92; 256];
+    let num_accounts = 200_000;
+    let block_size = 100;
+    let n_blocks = 150;
+
+    let seeds: Vec<String> = (0..num_accounts).map(|i| format!("test{}", i)).collect();
+    let accounts: Vec<AccountId> = seeds.iter().map(|id| id.parse().unwrap()).collect();
+
+    let mut s = Scenario {
+        network_config: NetworkConfig { seeds: seeds },
+        blocks: Vec::new(),
+        use_in_memory_store: false,
+    };
+
+    let mut i = 0;
+    for h in 0..n_blocks {
+        let mut block = BlockConfig::at_height((h + 1) as u64);
+        for _ in 0..block_size {
+            let signer_id = accounts[i].clone();
+            let receiver_id = signer_id.clone();
+            let signer =
+                InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_ref());
+            block.transactions.push(TransactionConfig {
+                nonce: i as u64,
+                signer_id,
+                receiver_id,
+                signer,
+                actions: vec![Action::DeployContract(DeployContractAction { code: code.clone() })],
+            });
+            i += 1;
+        }
+        s.blocks.push(block)
+    }
+
+    tracing_span_tree::enable_aggregated();
+    s.run().unwrap();
 }

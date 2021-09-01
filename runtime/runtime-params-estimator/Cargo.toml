@@ -32,7 +32,10 @@ near-store = { path = "../../core/store" }
 near-primitives = { path = "../../core/primitives" }
 near-test-contracts = { path = "../../runtime/near-test-contracts" }
 
+tracing-span-tree = { git = "https://github.com/matklad/tracing-span-tree" }
+
 testlib = { path = "../../test-utils/testlib" }
+runtime-tester = { path = "../../test-utils/runtime-tester" }
 state-viewer = { path = "../../test-utils/state-viewer" }
 nearcore = { path = "../../nearcore" }
 rocksdb = "0.16.0"
