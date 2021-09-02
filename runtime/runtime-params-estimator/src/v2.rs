@@ -428,7 +428,7 @@ fn slow() {
         metrics_to_measure: Some(vec!["ActionDeployContractBase".to_string()]),
     };
 
-    tracing_span_tree::enable_aggregated();
+    tracing_span_tree::span_tree().enable();
     let mut ctx = Ctx::new(&config);
     action_deploy_contract_base(&mut ctx);
 }
@@ -469,6 +469,6 @@ fn fast() {
         s.blocks.push(block)
     }
 
-    tracing_span_tree::enable_aggregated();
+    tracing_span_tree::span_tree().enable();
     s.run().unwrap();
 }
