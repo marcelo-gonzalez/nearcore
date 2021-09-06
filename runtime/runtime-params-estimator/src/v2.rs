@@ -449,10 +449,20 @@ fn fast() {
         use_in_memory_store: false,
     };
 
-    let mut i = 0;
+    let mut used = std::collections::HashSet::new();
+    let mut rng = rand::thread_rng();
+
     for h in 0..n_blocks {
         let mut block = BlockConfig::at_height((h + 1) as u64);
         for _ in 0..block_size {
+
+            let i = loop {
+                let i = rng.gen_range(0, num_accounts as u32);
+                if used.insert(i) {
+                    break i as usize;
+                }
+            };
+
             let signer_id = accounts[i].clone();
             let receiver_id = signer_id.clone();
             let signer =
@@ -465,7 +475,6 @@ fn fast() {
                 signer,
                 actions: vec![Action::DeployContract(DeployContractAction { code: code.clone() })],
             });
-            i += 1;
         }
         s.blocks.push(block)
     }

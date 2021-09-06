@@ -202,12 +202,10 @@ impl<'a, 'c> TransactionBuilder<'a, 'c> {
         self.testbed.accounts[account_index].clone()
     }
     pub(crate) fn random_unused_account(&mut self) -> AccountId {
-        loop {
-            let account = self.random_account();
-            if self.testbed.used_accounts.insert(account.clone()) {
-                return account;
-            }
-        }
+        let index = self.testbed.used_accounts.len();
+        let account = self.testbed.accounts[index].clone();
+        assert!(self.testbed.used_accounts.insert(account.clone()));
+        account
     }
     pub(crate) fn random_account_pair(&mut self) -> (AccountId, AccountId) {
         let first = self.random_account();
