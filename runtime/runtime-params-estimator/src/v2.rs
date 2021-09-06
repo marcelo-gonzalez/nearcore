@@ -333,6 +333,7 @@ fn deploy_contract(ctx: &mut Ctx, code: Vec<u8>) -> GasCost {
 
     let mut make_transaction = |mut tb: TransactionBuilder<'_, '_>| -> SignedTransaction {
         let sender = tb.random_unused_account();
+        eprintln!("sender = {:?}", sender);
         let receiver = sender.clone();
 
         let actions = vec![Action::DeployContract(DeployContractAction { code: code.clone() })];
@@ -401,8 +402,7 @@ fn action_function_call_per_byte(ctx: &mut Ctx) -> GasCost {
 fn slow() {
     use crate::testbed_runners::GasMetric;
 
-    let tempdir = tempfile::tempdir().unwrap();
-    let p = tempdir.path();
+    let p = std::path::Path::new("/tmp/slow");
 
     nearcore::init_configs(
         p, None, None, None, 1, true, None, false, None, false, None, None, None,
@@ -457,6 +457,7 @@ fn fast() {
             let receiver_id = signer_id.clone();
             let signer =
                 InMemorySigner::from_seed(signer_id.clone(), KeyType::ED25519, signer_id.as_ref());
+            eprintln!("sender={:?}", signer_id);
             block.transactions.push(TransactionConfig {
                 nonce: i as u64,
                 signer_id,

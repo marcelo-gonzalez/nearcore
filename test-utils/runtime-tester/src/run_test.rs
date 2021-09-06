@@ -12,7 +12,7 @@ use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, Nonce};
 use near_store::create_store;
 use near_store::test_utils::create_test_store;
-use nearcore::{config::GenesisExt, NightshadeRuntime};
+use nearcore::{config::GenesisExt, NightshadeRuntime, get_store_path};
 
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use serde::{Deserialize, Serialize};
@@ -28,15 +28,12 @@ impl Scenario {
             1,
         );
 
-        let tempdir;
         let store = if self.use_in_memory_store {
             create_test_store()
         } else {
-            tempdir = tempfile::tempdir().map_err(|err| {
-                Error::Other(format!("failed to create temporary directory: {}", err))
-            })?;
-            let path = tempdir.path().to_str().unwrap();
-            create_store(path)
+            let path = std::path::Path::new("/tmp/fast");
+            println!("path={}", path.display());
+            create_store(&get_store_path(&path))
         };
 
         let mut env = TestEnv::new_with_runtime(
@@ -54,6 +51,8 @@ impl Scenario {
                 RuntimeConfigStore::test(),
             )) as Arc<dyn RuntimeAdapter>],
         );
+
+        genesis.to_file("/tmp/fast/genesis.json");
 
         let mut last_block = env.clients[0].chain.get_block_by_height(0).unwrap().clone();
 
