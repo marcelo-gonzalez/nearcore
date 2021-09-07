@@ -950,10 +950,11 @@ pub fn init_configs(
                 &mut records,
                 account_id.clone(),
                 &signer.public_key(),
-                TESTING_INIT_BALANCE,
+                TESTING_INIT_BALANCE - TESTING_INIT_STAKE,
                 TESTING_INIT_STAKE,
                 CryptoHash::default(),
             );
+
             add_protocol_account(&mut records);
 
             let genesis_config = GenesisConfig {
@@ -961,10 +962,10 @@ pub fn init_configs(
                 genesis_time: Utc::now(),
                 chain_id,
                 genesis_height: 0,
-                num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
+                num_block_producer_seats: 1, //NUM_BLOCK_PRODUCER_SEATS,
                 num_block_producer_seats_per_shard: get_num_seats_per_shard(
                     num_shards,
-                    NUM_BLOCK_PRODUCER_SEATS,
+                    1,
                 ),
                 avg_hidden_validator_seats_per_shard: (0..num_shards).map(|_| 0).collect(),
                 dynamic_resharding: false,
@@ -988,7 +989,8 @@ pub fn init_configs(
                 max_inflation_rate: MAX_INFLATION_RATE,
                 total_supply: get_initial_supply(&records),
                 num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-                protocol_treasury_account: account_id,
+                protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
+//                protocol_treasury_account: account_id,
                 fishermen_threshold: FISHERMEN_THRESHOLD,
                 min_gas_price: MIN_GAS_PRICE,
                 ..Default::default()

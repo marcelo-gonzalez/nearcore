@@ -405,7 +405,7 @@ fn slow() {
     let p = std::path::Path::new("/tmp/slow");
 
     nearcore::init_configs(
-        p, None, None, None, 1, true, None, false, None, false, None, None, None,
+        p, None, Some("test0".parse().unwrap()), None, 1, true, None, false, None, false, None, None, None,
     );
 
     let near_config = load_config(p);
