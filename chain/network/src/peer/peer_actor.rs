@@ -494,8 +494,13 @@ impl PeerActor {
             }
         };
 
-        self.client_addr
-            .send(network_client_msg)
+        let req = if let NetworkClientMessages::PartialEncodedChunkResponse(_) = network_client_msg
+        {
+            self.client_addr.send_debug(network_client_msg)
+        } else {
+            self.client_addr.send(network_client_msg)
+        };
+        req
             .into_actor(self)
             .then(move |res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
