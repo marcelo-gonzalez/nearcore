@@ -1614,6 +1614,7 @@ impl PeerManagerActor {
                                 account_id,
                                 RoutedMessageBody::PartialEncodedChunkRequest(request.clone()),
                             ) {
+                                debug!(target: "chunks", "peer manager sent chunk part req to {}: {:?}", account_id, request);
                                 success = true;
                                 break;
                             }
@@ -1643,6 +1644,7 @@ impl PeerManagerActor {
                                     request.clone(),
                                 ),
                             }) {
+                                debug!(target: "chunks", "peer manager sent chunk part req to {}: {:?}", matching_peer, request);
                                 success = true;
                                 break;
                             }

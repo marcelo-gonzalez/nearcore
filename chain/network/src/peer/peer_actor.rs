@@ -434,6 +434,7 @@ impl PeerActor {
                         NetworkClientMessages::PartialEncodedChunkRequest(request, msg_hash)
                     }
                     RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                        debug!(target: "network", "Receive {:?} from {}", &response, peer_id);
                         NetworkClientMessages::PartialEncodedChunkResponse(response)
                     }
                     RoutedMessageBody::PartialEncodedChunk(partial_encoded_chunk) => {
