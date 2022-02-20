@@ -798,7 +798,13 @@ impl Client {
         &mut self,
         response: PartialEncodedChunkResponseMsg,
     ) -> Result<Vec<AcceptedBlock>, Error> {
-        let header = self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash)?;
+        let header = match self.shards_mgr.get_partial_encoded_chunk_header(&response.chunk_hash) {
+            Ok(h) => h,
+            Err(e) => {
+                debug!(target: "chunks", "get_partial_encoded_chunk_header gave {:?}", e);
+                return Err(e.into());
+            }
+        };
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
         // We already know the header signature is valid because we read it from the
         // shard manager.
