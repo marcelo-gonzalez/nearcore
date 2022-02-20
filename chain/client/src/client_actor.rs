@@ -556,6 +556,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 NetworkClientResponses::NoResponse
             }
             NetworkClientMessages::PartialEncodedChunkResponse(response) => {
+                debug!(target: "chunks", "client actor recv chunk part, hash: {:?}, ords: {:?}",
+                &response.chunk_hash, response.parts.iter().map(|p| p.part_ord).collect::<Vec<u64>>());
                 if let Ok(accepted_blocks) =
                     self.client.process_partial_encoded_chunk_response(response)
                 {
