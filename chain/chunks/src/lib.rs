@@ -1380,8 +1380,8 @@ impl ShardsManager {
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
-        debug!(target: "chunks", "process partial encoded chunk {:?} height {} shard {}, me: {:?}",
-               chunk_hash, header.height_created(), header.shard_id(), self.me);
+        debug!(target: "chunks", "process partial encoded chunk {:?} height {} shard {} part_ords: {:?}",
+               chunk_hash, header.height_created(), header.shard_id(), partial_encoded_chunk.parts.iter().map(|p| p.part_ord).collect::<Vec<u64>>());
         // Verify the partial encoded chunk is valid and worth processing
         // 1.a Leave if we received known chunk
         if let Some(entry) = self.encoded_chunks.get(&chunk_hash) {
