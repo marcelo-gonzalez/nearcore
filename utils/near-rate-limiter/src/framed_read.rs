@@ -31,6 +31,7 @@ pin_project! {
         pub(crate) state: State,
         pub(crate) codec: U,
         pub(crate) throttle_controller: ThrottleController,
+        peer: Option<String>,
     }
 }
 
@@ -195,6 +196,24 @@ where
                 codec: decoder,
                 state: Default::default(),
                 throttle_controller,
+                peer: None,
+            },
+        }
+    }
+
+    pub fn new_debug(
+        inner: T,
+        decoder: D,
+        throttle_controller: ThrottleController,
+        peer: Option<String>,
+    ) -> ThrottleFramedRead<T, D> {
+        ThrottleFramedRead {
+            inner: FramedImpl {
+                inner,
+                codec: decoder,
+                state: Default::default(),
+                throttle_controller,
+                peer: peer,
             },
         }
     }
@@ -290,7 +309,9 @@ where
             state.buffer.reserve(1);
 
             let bytect = ready!(poll_read_buf(pinned.inner.as_mut(), cx, &mut state.buffer)?);
-
+            if let Some(peer) = pinned.peer {
+                tracing::debug!(target: "network", "recv {} bytes from {}", bytect, peer);
+            }
             pinned.throttle_controller.report_bandwidth_used(bytect);
 
             if bytect == 0 {
