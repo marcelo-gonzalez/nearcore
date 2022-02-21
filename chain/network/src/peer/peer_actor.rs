@@ -166,6 +166,15 @@ impl PeerActor {
             _ => (),
         };
 
+        match &msg {
+            PeerMessage::Routed(m) => match &m.body {
+                RoutedMessageBody::PartialEncodedChunkRequest(r) => {
+                    debug!(target: "network", "write {:?} to {}", r, self.peer_info);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
         match msg.try_to_vec() {
             Ok(bytes) => {
                 self.tracker.increment_sent(bytes.len() as u64);
