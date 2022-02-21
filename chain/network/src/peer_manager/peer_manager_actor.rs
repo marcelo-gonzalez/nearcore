@@ -829,10 +829,11 @@ impl PeerManagerActor {
         PeerActor::start_in_arbiter(&arbiter.handle(), move |ctx| {
             let (read, write) = tokio::io::split(stream);
 
+            let peer = peer_info.as_ref().map(|i| String::from(format!("{}", i.id)));
             // TODO: check if peer is banned or known based on IP address and port.
             let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
             PeerActor::add_stream(
-                ThrottleFramedRead::new(read, Codec::default(), rate_limiter.clone())
+                ThrottleFramedRead::new_debug(read, Codec::default(), rate_limiter.clone(), peer)
                     .take_while(|x| match x {
                         Ok(_) => true,
                         Err(e) => {
