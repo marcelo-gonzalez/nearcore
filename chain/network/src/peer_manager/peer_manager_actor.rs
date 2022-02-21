@@ -1299,7 +1299,16 @@ impl PeerManagerActor {
         if let Some(connected_peer) = connected_peers.get(&peer_id) {
             let msg_kind = message.msg_variant().to_string();
             trace!(target: "network", ?msg_kind, "Send message");
-            connected_peer.addr.do_send(SendMessage { message });
+            match &message {
+                PeerMessage::Routed(m) => match &m.body {
+                    RoutedMessageBody::PartialEncodedChunkRequest(_) => {
+                        connected_peer.addr.do_send_debug(SendMessage { message })
+                    }
+                    _ => connected_peer.addr.do_send(SendMessage { message }),
+                },
+                _ => connected_peer.addr.do_send(SendMessage { message }),
+            }
+
             true
         } else {
             debug!(target: "network",
