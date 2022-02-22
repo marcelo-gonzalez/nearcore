@@ -490,7 +490,7 @@ where
                         tracing::debug!(target: "network", "OS write({}) to {} pending", inner.buffer.len(), peer);
                     }
                     return Poll::Pending;
-                },
+                }
             }
         }
 

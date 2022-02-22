@@ -987,12 +987,22 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             (PeerStatus::Ready, PeerMessage::Routed(routed_message)) => {
                 trace!(target: "network", "Received routed message from {} to {:?}.", self.peer_info, routed_message.target);
 
+                if let RoutedMessageBody::PartialEncodedChunkResponse(response) =
+                    &routed_message.body
+                {
+                    debug!(target: "network", "sending throttled req hash: {:?}, ords: {:?} to {}",
+                        &response.chunk_hash,
+                        response.parts.iter().map(|p| p.part_ord).collect::<Vec<u64>>(),
+                        self.peer_info,
+                    );
+                }
+
                 // Receive invalid routed message from peer.
                 if !routed_message.verify() {
                     self.ban_peer(ctx, ReasonForBan::InvalidSignature);
                 } else {
                     self.peer_manager_addr
-                        .send(ActixMessageWrapper::new_without_size(
+                        .send_debug(ActixMessageWrapper::new_without_size(
                             PeerManagerMessageRequest::RoutedMessageFrom(RoutedMessageFrom {
                                 msg: routed_message.clone(),
                                 from: self.other_peer_id().unwrap().clone(),

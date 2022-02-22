@@ -58,7 +58,7 @@ version = "0.12.0"
 exclude = [ "neard" ]
 
 [patch.crates-io]
-actix = { git = "https://github.com/marcelo-gonzalez/actix", rev = "1738180c0460f5fa565ebe50f30054293ca2f8f3" }
+actix = { git = "https://github.com/marcelo-gonzalez/actix", rev = "6f103f6911515632ca4c9c8b1a39a1a1d7533646" }
 
 [profile.release]
 overflow-checks = true
