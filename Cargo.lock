@@ -5,7 +5,7 @@ version = 3
 [[package]]
 name = "actix"
 version = "0.11.0-beta.2"
-source = "git+https://github.com/marcelo-gonzalez/actix?rev=6f103f6911515632ca4c9c8b1a39a1a1d7533646#6f103f6911515632ca4c9c8b1a39a1a1d7533646"
+source = "git+https://github.com/marcelo-gonzalez/actix?rev=5b3d9a0861354bbf833cce16504143b75ffe5d30#5b3d9a0861354bbf833cce16504143b75ffe5d30"
 dependencies = [
  "actix-rt",
  "actix_derive",
