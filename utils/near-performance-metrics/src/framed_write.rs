@@ -259,6 +259,7 @@ struct InnerWriter<E: From<io::Error>, K: EncoderCallBack> {
     handle: SpawnHandle,
     task: Option<task::Waker>,
     callback: K,
+    peer: Option<String>,
 }
 
 pub struct EmptyCallBack {}
@@ -293,7 +294,7 @@ pub struct FramedWrite<I, T: AsyncWrite + Unpin, U: Encoder<I>, K: EncoderCallBa
 impl<I, T: AsyncWrite + Unpin, U: Encoder<I>, K: 'static + EncoderCallBack>
     FramedWrite<I, T, U, K>
 {
-    pub fn new<A, C>(io: T, enc: U, callback: K, ctx: &mut C) -> Self
+    pub fn new<A, C>(io: T, enc: U, callback: K, ctx: &mut C, peer: Option<String>) -> Self
     where
         A: Actor<Context = C> + WriteHandler<U::Error>,
         C: AsyncContext<A>,
@@ -310,6 +311,7 @@ impl<I, T: AsyncWrite + Unpin, U: Encoder<I>, K: 'static + EncoderCallBack>
                 handle: SpawnHandle::default(),
                 task: None,
                 callback,
+                peer,
             })),
             Rc::new(RefCell::new(io)),
         );
@@ -337,6 +339,7 @@ impl<I, T: AsyncWrite + Unpin, U: Encoder<I>, K: 'static + EncoderCallBack>
                 handle: SpawnHandle::default(),
                 task: None,
                 callback,
+                peer: None,
             })),
             Rc::new(RefCell::new(io)),
         );
@@ -439,6 +442,9 @@ where
         while !inner.buffer.is_empty() {
             match Pin::new(io.deref_mut()).poll_write(task, &inner.buffer) {
                 Poll::Ready(Ok(n)) => {
+                    if let Some(peer) = &inner.peer {
+                        tracing::debug!(target: "network", "OS wrote {} bytes to {}", n, peer);
+                    }
                     if n == 0
                         && act.error(
                             io::Error::new(
@@ -462,18 +468,29 @@ where
                     }
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if let Some(peer) = &inner.peer {
+                        tracing::debug!(target: "network", "OS write to {} would block", peer);
+                    }
                     if inner.buffer.len() > inner.high {
                         ctx.wait(WriterDrain { inner: this.inner.clone(), act: PhantomData });
                     }
                     return Poll::Pending;
                 }
                 Poll::Ready(Err(e)) => {
+                    if let Some(peer) = &inner.peer {
+                        tracing::debug!(target: "network", "OS write to {} error: {:?}", peer, e);
+                    }
                     if act.error(e.into(), ctx) == Running::Stop {
                         act.finished(ctx);
                         return Poll::Ready(());
                     }
                 }
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    if let Some(peer) = &inner.peer {
+                        tracing::debug!(target: "network", "OS write to {} pending", peer);
+                    }
+                    return Poll::Pending;
+                },
             }
         }
 
@@ -540,6 +557,9 @@ where
         while !inner.buffer.is_empty() {
             match Pin::new(io.deref_mut()).poll_write(task, &inner.buffer) {
                 Poll::Ready(Ok(n)) => {
+                    if let Some(peer) = &inner.peer {
+                        tracing::debug!(target: "network", "WriterDrain: wrote {} bytes to {}", n, peer);
+                    }
                     if n == 0 {
                         inner.error = Some(
                             io::Error::new(
@@ -562,6 +582,9 @@ where
                     }
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
+                    if let Some(peer) = &inner.peer {
+                        tracing::debug!(target: "network", "WriterDrain: write to {} would block", peer);
+                    }
                     return if inner.buffer.len() < inner.low {
                         Poll::Ready(())
                     } else {
@@ -569,10 +592,18 @@ where
                     };
                 }
                 Poll::Ready(Err(e)) => {
+                    if let Some(peer) = &inner.peer {
+                        tracing::debug!(target: "network", "WriterDrain: write to {} error: {:?}", peer, e);
+                    }
                     inner.error = Some(e.into());
                     return Poll::Ready(());
                 }
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    if let Some(peer) = &inner.peer {
+                        tracing::debug!(target: "network", "WriterDrain: write to {} pending", peer);
+                    }
+                    return Poll::Pending;
+                }
             }
         }
         Poll::Ready(())

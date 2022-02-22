@@ -833,7 +833,7 @@ impl PeerManagerActor {
             // TODO: check if peer is banned or known based on IP address and port.
             let rate_limiter = ThrottleController::new(MAX_MESSAGES_COUNT, MAX_MESSAGES_TOTAL_SIZE);
             PeerActor::add_stream(
-                ThrottleFramedRead::new_debug(read, Codec::default(), rate_limiter.clone(), peer)
+                ThrottleFramedRead::new_debug(read, Codec::default(), rate_limiter.clone(), peer.clone())
                     .take_while(|x| match x {
                         Ok(_) => true,
                         Err(e) => {
@@ -850,7 +850,7 @@ impl PeerManagerActor {
                 remote_addr,
                 peer_info,
                 peer_type,
-                FramedWrite::new(write, Codec::default(), Codec::default(), ctx),
+                FramedWrite::new(write, Codec::default(), Codec::default(), ctx, peer),
                 handshake_timeout,
                 recipient,
                 client_addr,
