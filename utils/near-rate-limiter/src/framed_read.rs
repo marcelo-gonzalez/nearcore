@@ -292,8 +292,10 @@ where
                 }
                 trace!("attempting to decode a frame");
 
+                let len = state.buffer.len();
                 if let Some(frame) = pinned.codec.decode(&mut state.buffer)? {
                     trace!("frame decoded from buffer");
+                    tracing::debug!(target: "network", "decoded frame with len {} from {:?}", len-state.buffer.len()-4, &pinned.peer);
                     pinned.throttle_controller.report_msg_seen();
                     return Poll::Ready(Some(Ok(frame)));
                 }

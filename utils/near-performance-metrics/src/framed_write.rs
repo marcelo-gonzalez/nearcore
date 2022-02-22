@@ -469,7 +469,7 @@ where
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
                     if let Some(peer) = &inner.peer {
-                        tracing::debug!(target: "network", "OS write to {} would block", peer);
+                        tracing::debug!(target: "network", "OS write({}) to {} would block", inner.buffer.len(), peer);
                     }
                     if inner.buffer.len() > inner.high {
                         ctx.wait(WriterDrain { inner: this.inner.clone(), act: PhantomData });
@@ -487,7 +487,7 @@ where
                 }
                 Poll::Pending => {
                     if let Some(peer) = &inner.peer {
-                        tracing::debug!(target: "network", "OS write to {} pending", peer);
+                        tracing::debug!(target: "network", "OS write({}) to {} pending", inner.buffer.len(), peer);
                     }
                     return Poll::Pending;
                 },
