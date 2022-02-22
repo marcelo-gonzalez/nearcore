@@ -2125,6 +2125,7 @@ impl PeerManagerActor {
     ) -> PeerManagerMessageResponse {
         match msg {
             PeerManagerMessageRequest::RoutedMessageFrom(msg) => {
+                debug!(target: "network", "Peer manager recv throttled routed msg {:?} from {}", msg.msg.body, msg.from);
                 PeerManagerMessageResponse::RoutedMessageFrom(self.handle_msg_routed_from(msg))
             }
             PeerManagerMessageRequest::NetworkRequests(msg) => {

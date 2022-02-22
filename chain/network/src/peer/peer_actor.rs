@@ -503,8 +503,13 @@ impl PeerActor {
             }
         };
 
-        self.client_addr
-            .send(network_client_msg)
+        let req = if let NetworkClientMessages::PartialEncodedChunkResponse(_) = network_client_msg
+        {
+            self.client_addr.send_debug(network_client_msg)
+        } else {
+            self.client_addr.send(network_client_msg)
+        };
+        req
             .into_actor(self)
             .then(move |res, act, ctx| {
                 // Ban peer if client thinks received data is bad.
@@ -996,9 +1001,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         ))
                         .into_actor(self)
                         .then(move |res, act, ctx| {
+                            debug!(target: "network", "finally handling routed msg {:?} from {}", routed_message.body, act.peer_info);
                             if res.map(|f| f.into_inner().as_routed_message_from()).unwrap_or(false)
                             {
                                 act.receive_message(ctx, PeerMessage::Routed(routed_message));
+                            } else {
+                                debug!(target: "network", "peer manager says no!");
                             }
                             actix::fut::ready(())
                         })
