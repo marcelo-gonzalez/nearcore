@@ -97,6 +97,8 @@ pub enum StateViewerSubCommand {
     /// Clear recoverable data in CachedContractCode column.
     #[clap(alias = "clear_cache")]
     ClearCache,
+    #[clap(name = "txs")]
+    Txs(TxsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -154,6 +156,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => {
                 cmd.run(home_dir, near_config, store)
             }
+            StateViewerSubCommand::Txs(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -916,5 +919,21 @@ impl TrieIterationBenchmarkCmd {
             }
         };
         println!("{state_record_string}");
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct TxsCmd {
+    #[clap(long)]
+    start: u64,
+    #[clap(long)]
+    end: u64,
+    #[clap(long)]
+    count_only: bool,
+}
+
+impl TxsCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        txs(self.start, self.end, near_config, store, self.count_only).unwrap();
     }
 }
