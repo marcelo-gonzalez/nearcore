@@ -91,6 +91,8 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    #[clap(name = "txs")]
+    Txs(TxsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -147,6 +149,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Txs(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -781,5 +784,21 @@ impl ViewTrieCmd {
                 .unwrap();
             }
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct TxsCmd {
+    #[clap(long)]
+    start: u64,
+    #[clap(long)]
+    end: u64,
+    #[clap(long)]
+    count_only: bool,
+}
+
+impl TxsCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        txs(self.start, self.end, near_config, store, self.count_only).unwrap();
     }
 }
