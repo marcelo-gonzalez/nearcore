@@ -18,6 +18,8 @@ use near_primitives::serialize::to_base;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
+use near_primitives::transaction::Action;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId, StateRoot};
@@ -579,6 +581,84 @@ pub(crate) fn view_chain(
             println!("shard {}, chunk: {:#?}", shard_id, chunk);
         }
     }
+}
+
+fn tx_actions(tx: &SignedTransaction) -> String {
+    let mut ret = String::new();
+    ret += &format!("{}: actions: <", tx.get_hash());
+    for action in tx.transaction.actions.iter() {
+        match action {
+            Action::CreateAccount(_) => ret += "CreateAccount",
+            Action::DeployContract(_) => ret += "DeployContract",
+            Action::FunctionCall(_) => ret += "FunctionCall",
+            Action::Transfer(_) => ret += "Transfer",
+            Action::Stake(_) => ret += "Stake",
+            Action::AddKey(_) => ret += "AddKey",
+            Action::DeleteKey(_) => ret += "DeleteKey",
+            Action::DeleteAccount(_) => ret += "DeleteAccount",
+        }
+    }
+    ret += ">";
+    ret
+}
+
+pub(crate) fn txs(
+    start: u64,
+    end: u64,
+    near_config: NearConfig,
+    store: Store,
+) -> anyhow::Result<()> {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let chain_store =
+        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
+
+    for height in start..end {
+        let hash = match chain_store.get_block_hash_by_height(height) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+        let block = match chain_store.get_block(&hash) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("cant get block {} {:?}", &hash, e);
+                continue;
+            }
+        };
+        let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+        for (shard_id, c) in chunk_hashes.iter().enumerate() {
+            let chunk = match chain_store.get_chunk(&c) {
+                Ok(chunk) => chunk,
+                Err(_) => continue,
+            };
+            if chunk.height_included() != height {
+                println!(
+                    "height {} shard {} not included ({})",
+                    height,
+                    shard_id,
+                    chunk.height_included()
+                );
+                continue;
+            }
+            if chunk.transactions().is_empty() && chunk.receipts().is_empty() {
+                println!("height {} shard {} empty", height, shard_id,);
+                continue;
+            }
+            println!(
+                "height {} shard {} Mgas {}",
+                height,
+                shard_id,
+                chunk.cloned_header().gas_used() / 1_000_000
+            );
+            for tx in chunk.transactions() {
+                println!("{}", tx_actions(tx));
+            }
+            for r in chunk.receipts() {
+                println!("receipt {}", r.get_hash());
+            }
+            println!("---------");
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn check_block_chunk_existence(store: Store, near_config: NearConfig) {

@@ -68,6 +68,8 @@ pub enum StateViewerSubCommand {
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_receipt")]
     ApplyReceipt(ApplyReceiptCmd),
+    #[clap(name = "txs")]
+    Txs(TxsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -99,6 +101,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Txs(cmd) => cmd.run(near_config, store),
         }
     }
 }
@@ -434,5 +437,19 @@ impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         apply_receipt(home_dir, near_config, store, hash).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct TxsCmd {
+    #[clap(long)]
+    start: u64,
+    #[clap(long)]
+    end: u64,
+}
+
+impl TxsCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        txs(self.start, self.end, near_config, store).unwrap();
     }
 }
