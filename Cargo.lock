@@ -2589,6 +2589,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "mirror"
+version = "0.0.0"
+dependencies = [
+ "actix",
+ "anyhow",
+ "borsh",
+ "clap 3.1.18",
+ "near-chain-configs",
+ "near-client",
+ "near-client-primitives",
+ "near-crypto",
+ "near-indexer",
+ "near-network",
+ "near-network-primitives",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "openssl-probe",
+ "rocksdb",
+ "serde",
+ "serde_json",
+ "strum",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "mock-node"
 version = "0.0.0"
 dependencies = [
