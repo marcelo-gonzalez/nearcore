@@ -45,6 +45,7 @@ members = [
     "test-utils/testlib",
     "tools/chainsync-loadtest",
     "tools/delay_detector",
+    "tools/genesis-updater",
     "tools/indexer/example",
     "tools/mock_node",
     "tools/restaked",

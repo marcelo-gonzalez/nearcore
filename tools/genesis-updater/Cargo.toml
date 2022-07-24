@@ -1,0 +1,32 @@
+[package]
+name = "genesis-updater"
+version = "0.0.0"
+authors = ["Near Inc <hello@nearprotocol.com>"]
+publish = false
+# Please update rust-toolchain.toml as well when changing version here:
+rust-version = "1.61.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "3.1.6", features = ["derive", "env"] }
+num-rational = { version = "0.3", features = ["serde"] }
+serde = "1"
+serde_json = "1"
+tracing = "0.1.13"
+
+nearcore = { path = "../../nearcore" }
+near-account-id = { path = "../../core/account-id" }
+near-chain-configs = { path = "../../core/chain-configs" }
+near-client = { path = "../../chain/client" }
+near-client-primitives = { path = "../../chain/client-primitives" }
+near-indexer-primitives = { path = "../../chain/indexer-primitives" }
+near-indexer = { path = "../../chain/indexer" }
+near-metrics = { path = "../../core/metrics" }
+near-network-primitives = { path = "../../chain/network-primitives" }
+near-network = { path = "../../chain/network" }
+near-primitives = { path = "../../core/primitives" }
+near-primitives-core = { path = "../../core/primitives-core" }
+near-o11y = { path = "../../core/o11y" }
+near-store = { path = "../../core/store" }
+near-crypto = { path = "../../core/crypto" }

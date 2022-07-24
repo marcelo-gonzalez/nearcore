@@ -1923,6 +1923,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "genesis-updater"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 3.1.18",
+ "near-account-id",
+ "near-chain-configs",
+ "near-client",
+ "near-client-primitives",
+ "near-crypto",
+ "near-indexer",
+ "near-indexer-primitives",
+ "near-metrics",
+ "near-network",
+ "near-network-primitives",
+ "near-o11y",
+ "near-primitives",
+ "near-primitives-core",
+ "near-store",
+ "nearcore",
+ "num-rational",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
