@@ -176,6 +176,7 @@ pub fn create_genesis<P: AsRef<Path>>(
         records_seq.serialize_element(&r).unwrap();
     })?;
     for (account_id, account) in accounts_wanted {
+        total_supply += account.amount() + account.locked();
         records_seq.serialize_element(&StateRecord::Account { account_id, account }).unwrap();
     }
     for (account_id, keys) in keys_wanted {
