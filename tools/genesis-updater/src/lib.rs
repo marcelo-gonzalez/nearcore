@@ -4,15 +4,15 @@ use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_record::StateRecord;
+use near_primitives::types::AccountInfo;
 use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::types::{NumSeats, Balance};
+use near_primitives_core::types::{Balance, NumSeats};
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::str::FromStr;
-use near_primitives::types::AccountInfo;
 
 struct AccountData {
     account_id: &'static str,
@@ -51,7 +51,9 @@ const WANTED_KEYS: &'static [KeyData] = &[
     },
 ];
 
-fn mocknet_validators(validator_node_names: &[&str]) -> anyhow::Result<Vec<(AccountId, Account, PublicKey)>> {
+fn mocknet_validators(
+    validator_node_names: &[&str],
+) -> anyhow::Result<Vec<(AccountId, Account, PublicKey)>> {
     let mut validators = Vec::new();
     for validator in validator_node_names.iter() {
         // TODO: split(-)
@@ -60,7 +62,11 @@ fn mocknet_validators(validator_node_names: &[&str]) -> anyhow::Result<Vec<(Acco
             AccountId::from_str(&name).with_context(|| format!("Parsing account ID {}", name))?;
         let account =
             Account::new(100 * nearcore::config::NEAR_BASE, 64_000, CryptoHash::default(), 0);
-        validators.push((account_id, account, PublicKey::from_str("ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN").unwrap()));
+        validators.push((
+            account_id,
+            account,
+            PublicKey::from_str("ed25519:76NVkDErhbP1LGrSAf5Db6BsFJ6LBw6YVA4BsfTBohmN").unwrap(),
+        ));
     }
     Ok(validators)
 }
@@ -160,9 +166,12 @@ pub fn create_genesis<P: AsRef<Path>>(
                 }
             }
             StateRecord::Account { account_id, account } => {
-                if let Some(acc) = accounts_wanted.get(account_id) {
-                    *account = acc.clone();
-                    accounts_wanted.remove(account_id);
+                if let Some(acc) = accounts_wanted.remove(account_id) {
+                    // TODO: whats best to do here?
+                    if account.amount() < acc.amount() {
+                        account.set_amount(acc.amount());
+                    }
+                    account.set_locked(acc.locked());
                 } else {
                     if account.locked() != 0 {
                         account.set_amount(account.amount() + account.locked());
