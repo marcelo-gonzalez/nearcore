@@ -269,6 +269,7 @@ pub(crate) fn apply_tx(
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
     if let Some(outcome) = outcomes.first() {
+        dbg!(&outcome);
         Ok(vec![apply_tx_in_block(runtime, &mut chain_store, &tx_hash, outcome.block_hash)?])
     } else {
         apply_tx_in_chunk(runtime, store, &mut chain_store, &tx_hash)
@@ -396,6 +397,7 @@ pub(crate) fn apply_receipt(
     let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {
+        dbg!(&outcome);
         Ok(vec![apply_receipt_in_block(runtime, &mut chain_store, &id, outcome.block_hash)?])
     } else {
         apply_receipt_in_chunk(runtime, store, &mut chain_store, &id)

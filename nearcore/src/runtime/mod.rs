@@ -579,8 +579,14 @@ impl NightshadeRuntime {
             })?;
         let elapsed = instant.elapsed();
 
-        let total_gas_burnt =
-            apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
+        let total_gas_burnt = apply_result
+            .outcomes
+            .iter()
+            .map(|tx_result| {
+                println!("tx result {:?}", &tx_result);
+                tx_result.outcome.gas_burnt
+            })
+            .sum();
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
             .observe(elapsed.as_secs_f64());
@@ -618,6 +624,7 @@ impl NightshadeRuntime {
             processed_delayed_receipts: apply_result.processed_delayed_receipts,
         };
 
+        println!("hello sir {}", &result.total_gas_burnt);
         Ok(result)
     }
 

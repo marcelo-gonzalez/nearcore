@@ -1230,6 +1230,11 @@ impl Runtime {
                 &mut stats,
             )?;
             if receipt.receiver_id == signed_transaction.transaction.signer_id {
+                println!(
+                    "yoyo made local receipt {:?} from tx {:?}",
+                    &receipt.receipt_id,
+                    signed_transaction.get_hash()
+                );
                 local_receipts.push(receipt);
             } else {
                 outgoing_receipts.push(receipt);
@@ -1237,6 +1242,7 @@ impl Runtime {
 
             total_gas_burnt += outcome_with_id.outcome.gas_burnt;
 
+            println!("yoyo push tx {:?} outcome", signed_transaction.get_hash());
             outcomes.push(outcome_with_id);
         }
 
@@ -1272,6 +1278,7 @@ impl Runtime {
                 |outcome_with_id: ExecutionOutcomeWithId| -> Result<(), RuntimeError> {
                     *total_gas_burnt =
                         safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
+                    println!("yoyo push receipt {:?} outcome", &receipt.receipt_id);
                     outcomes.push(outcome_with_id);
                     Ok(())
                 },
