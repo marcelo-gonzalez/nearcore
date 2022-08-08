@@ -589,6 +589,39 @@ pub(crate) fn view_chain(
     }
 }
 
+pub(crate) fn versions(
+    start: u64,
+    end: u64,
+    near_config: NearConfig,
+    store: Store,
+    home_dir: &Path,
+) -> anyhow::Result<()> {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let chain_store =
+        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
+    let runtime = NightshadeRuntime::from_config(&home_dir, store.clone(), &near_config);
+
+    for height in start..end {
+        let hash = match chain_store.get_block_hash_by_height(height) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+        match chain_store.get_block_header(&hash) {
+            Ok(b) => {
+                let producer = match runtime.get_block_producer(b.epoch_id(), height) {
+                    Ok(p) => format!("{}", p),
+                    Err(e) => format!("cant get producer {:?}", e),
+                };
+                println!("{}: {}: {}", height, producer, b.latest_protocol_version());
+            }
+            Err(e) => {
+                println!("{}: Err({:?})", height, e);
+            }
+        };
+    }
+    Ok(())
+}
+
 pub(crate) fn check_block_chunk_existence(store: Store, near_config: NearConfig) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store = ChainStore::new(store, genesis_height, !near_config.client_config.archive);
