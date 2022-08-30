@@ -4189,6 +4189,7 @@ dependencies = [
  "near-network-primitives",
  "near-o11y",
  "near-primitives",
+ "near-primitives-core",
  "near-store",
  "nearcore",
  "tokio",
