@@ -1130,6 +1130,7 @@ impl actix::Handler<stream::Frame> for PeerActor {
                 self.network_state
                     .peer_manager_addr
                     .do_send(PeerToManagerMsg::PeersResponse(PeersResponse { peers }));
+                ctx.stop();
             }
             (PeerStatus::Ready, PeerMessage::RequestUpdateNonce(edge_info)) => self
                 .network_state

@@ -6,6 +6,7 @@ use near_network_primitives::types::{
     Blacklist, KnownPeerState, KnownPeerStatus, PeerInfo, ReasonForBan,
 };
 use near_primitives::network::PeerId;
+use near_primitives::types::AccountId;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::collections::hash_map::{Entry, Iter};
@@ -55,6 +56,7 @@ pub struct PeerStore {
     blacklist: Blacklist,
     boot_nodes: HashSet<PeerId>,
     connect_only_to_boot_nodes: bool,
+    printed_peers: HashMap<AccountId, TrustLevel>,
 }
 
 impl PeerStore {
@@ -158,6 +160,7 @@ impl PeerStore {
             blacklist,
             boot_nodes: boot_nodes_set,
             connect_only_to_boot_nodes,
+            printed_peers: HashMap::new(),
         };
         peer_store.delete_peers(&peers_to_delete)?;
         Ok(peer_store)
@@ -316,6 +319,26 @@ impl PeerStore {
             Some(peer_state) => self.store.set_peer_state(&peer_id, peer_state)?,
             None => (),
         })
+    }
+
+    pub(crate) fn print_addrs(&mut self, peerid_to_acct: &HashMap<PeerId, AccountId>) {
+        for (addr, peer) in self.addr_peers.iter() {
+            if let Some(a) = peerid_to_acct.get(&peer.peer_id) {
+                let update = match self.printed_peers.get(a) {
+                    Some(TrustLevel::Indirect) => {
+                        peer.trust_level == TrustLevel::Direct
+                            || peer.trust_level == TrustLevel::Signed
+                    }
+                    Some(TrustLevel::Direct) => peer.trust_level == TrustLevel::Signed,
+                    Some(TrustLevel::Signed) => false,
+                    None => true,
+                };
+                if update {
+                    println!("{} -> {}@{}  {:?}", a, &peer.peer_id, addr, &peer.trust_level);
+                    self.printed_peers.insert(a.clone(), peer.trust_level.clone());
+                }
+            }
+        }
     }
 
     /// Create new pair between peer_info.id and peer_addr removing

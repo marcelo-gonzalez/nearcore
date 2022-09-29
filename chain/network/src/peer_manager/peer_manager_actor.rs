@@ -148,6 +148,7 @@ pub struct PeerManagerActor {
     whitelist_nodes: Vec<WhitelistNode>,
 
     pub(crate) state: Arc<NetworkState>,
+    already_connected: HashSet<SocketAddr>,
 }
 
 /// TEST-ONLY
@@ -321,6 +322,7 @@ impl PeerManagerActor {
                 RoutingTableView::new(store, my_peer_id.clone()),
                 rl,
             )),
+            already_connected: HashSet::new(),
         }))
     }
 
@@ -363,7 +365,7 @@ impl PeerManagerActor {
 
     fn broadcast_accounts(&mut self, accounts: Vec<AnnounceAccount>) {
         let new_accounts = self.state.routing_table_view.add_accounts(accounts);
-        debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
+        debug!(target: "network", account_id = ?self.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts. total {}", self.state.routing_table_view.get_announce_accounts().len());
         if new_accounts.len() > 0 {
             self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncRoutingTable(
                 RoutingTableUpdate::from_accounts(new_accounts),
@@ -568,6 +570,7 @@ impl PeerManagerActor {
                     metrics::EDGE_TOMBSTONE_SENDING_SKIPPED.inc();
                 }
                 let known_accounts = act.state.routing_table_view.get_announce_accounts();
+                tracing::debug!(target: "network", "send {} accounts to {:?}", known_accounts.len(), &peer.peer_info);
                 peer.send_message(Arc::new(PeerMessage::SyncRoutingTable(
                     RoutingTableUpdate::new(known_edges, known_accounts),
                 )));
@@ -921,13 +924,18 @@ impl PeerManagerActor {
                     || self.config.node_addr == peer_state.peer_info.addr
                     // Or to peers we are currently trying to connect to
                     || tier2.outbound_handshakes.contains(&peer_state.peer_info.id)
+                    || peer_state.peer_info.addr.map_or(false, |a| self.already_connected.contains(&a))
             }) {
                 // Start monitor_peers_attempts from start after we discover the first healthy peer
                 if !self.started_connect_attempts {
                     self.started_connect_attempts = true;
                     interval = default_interval;
                 }
+                if let Some(a) = peer_info.addr {
+                    self.already_connected.insert(a);
+                }
 
+                tracing::debug!(target: "network", "outbound {:?}", &peer_info);
                 ctx.notify(PeerManagerMessageRequest::OutboundTcpConnect(OutboundTcpConnect(
                     peer_info,
                 )));
@@ -1401,12 +1409,18 @@ impl PeerManagerActor {
 
     fn handle_msg_peers_response(&mut self, msg: PeersResponse) {
         let _d = delay_detector::DelayDetector::new(|| "peers response".into());
+        let announces = self.state.routing_table_view.get_announce_accounts();
+        let peerid_to_acct = announces
+            .iter()
+            .map(|a| (a.peer_id.clone(), a.account_id.clone()))
+            .collect::<HashMap<_, _>>();
         if let Err(err) = self.peer_store.add_indirect_peers(
             &self.clock,
             msg.peers.into_iter().filter(|peer_info| peer_info.id != self.my_peer_id),
         ) {
             error!(target: "network", ?err, "Fail to update peer store");
         };
+        self.peer_store.print_addrs(&peerid_to_acct);
     }
 
     fn handle_peer_manager_message(
@@ -1563,6 +1577,7 @@ impl PeerManagerActor {
                     })
                     .collect();
 
+                tracing::debug!(target: "network", "asdf just called get_announces {}", self.state.routing_table_view.get_announce_accounts().len());
                 // Ask client to validate accounts before accepting them.
                 let peer_id_clone = peer_id.clone();
                 self.state.view_client_addr
