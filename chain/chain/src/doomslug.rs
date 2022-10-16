@@ -337,6 +337,7 @@ impl Doomslug {
         signer: Option<Arc<dyn ValidatorSigner>>,
         threshold_mode: DoomslugThresholdMode,
     ) -> Self {
+        tracing::info!(target: "chain", "asdf doomslug endorsement delay {:?}", endorsement_delay);
         Doomslug {
             approval_tracking: HashMap::new(),
             largest_target_height,
@@ -440,6 +441,11 @@ impl Doomslug {
 
             let tip_height = self.tip.height;
 
+            if self.endorsement_pending {
+                tracing::info!(target: "chain", "asdf endorsement pending {:?} {:?}", cur_time, self.timer.last_endorsement_sent);
+            } else {
+                tracing::info!(target: "chain", "asdf doomslug endorsement not pending");
+            }
             if self.endorsement_pending
                 && cur_time >= self.timer.last_endorsement_sent + self.timer.endorsement_delay
             {

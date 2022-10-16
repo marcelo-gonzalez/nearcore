@@ -1160,6 +1160,7 @@ impl ClientActor {
         let _ = self.client.check_and_update_doomslug_tip();
         let approvals = self.client.doomslug.process_timer(Clock::instant());
 
+        tracing::info!(target: "client", "asdf doomslug approvals {:?}", &approvals);
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_store().store_update();
