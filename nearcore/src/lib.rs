@@ -213,6 +213,9 @@ pub fn start_with_config_and_synchronization(
     config_updater: Option<ConfigUpdater>,
 ) -> anyhow::Result<NearNode> {
     let storage = open_storage(home_dir, &mut config)?;
+    if 1 < 2 {
+        anyhow::bail!("we are done");
+    }
     let db_metrics_arbiter = if config.client_config.enable_statistics_export {
         let period = config.client_config.log_summary_period;
         let db_metrics_arbiter_handle = spawn_db_metrics_loop(&storage, period)?;
