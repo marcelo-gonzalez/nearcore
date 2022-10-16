@@ -176,6 +176,9 @@ pub fn start_with_config_and_synchronization(
 ) -> anyhow::Result<NearNode> {
     let store = open_storage(home_dir, &mut config)?;
 
+    if 1 < 2 {
+        anyhow::bail!("we are done");
+    }
     let runtime = Arc::new(NightshadeRuntime::from_config(
         home_dir,
         store.get_store(Temperature::Hot),
