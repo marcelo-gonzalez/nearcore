@@ -2725,6 +2725,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "async-trait",
  "borsh",
  "bs58",
  "clap 3.1.18",

@@ -10,6 +10,7 @@ edition = "2021"
 [dependencies]
 actix.workspace = true
 anyhow.workspace = true
+async-trait.workspace = true
 borsh.workspace = true
 bs58.workspace = true
 clap.workspace = true
