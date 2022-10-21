@@ -6,6 +6,7 @@ use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
+use anyhow::Context;
 use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
@@ -22,14 +23,19 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
+use near_primitives::action::Action;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
+use near_primitives::transaction::{
+    ExecutionOutcomeWithIdAndProof, ExecutionStatus, SignedTransaction,
+};
 use near_primitives::trie_key::col::NON_DELAYED_RECEIPT_COLUMNS;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
@@ -1396,4 +1402,181 @@ mod tests {
         assert_eq!(&state_roots[0], chunk_extras[1].state_root());
         assert_eq!(block_header.height(), 2);
     }
+}
+
+fn is_on_current_chain(chain: &ChainStore, header: &BlockHeader) -> Result<bool, Error> {
+    let chain_header = chain.get_block_header_by_height(header.height())?;
+    Ok(chain_header.hash() == header.hash())
+}
+
+fn get_execution_outcome(
+    chain: &ChainStore,
+    id: &CryptoHash,
+) -> Result<ExecutionOutcomeWithIdAndProof, Error> {
+    let outcomes = chain.get_outcomes_by_id(id)?;
+    outcomes
+        .into_iter()
+        .find(|outcome| match chain.get_block_header(&outcome.block_hash) {
+            Ok(header) => is_on_current_chain(chain, &header).unwrap_or(false),
+            Err(_) => false,
+        })
+        .ok_or_else(|| Error::DBNotFoundErr(format!("EXECUTION OUTCOME: {}", id)))
+}
+
+fn account_matches(
+    account_id: &AccountId,
+    target_account_id: &AccountId,
+    partial_match: bool,
+) -> bool {
+    if partial_match {
+        AsRef::<str>::as_ref(account_id).contains(AsRef::<str>::as_ref(target_account_id))
+    } else {
+        account_id == target_account_id
+    }
+}
+
+fn print_actions(tx: &SignedTransaction) {
+    for a in tx.transaction.actions.iter() {
+        match a {
+            Action::FunctionCall(f) => {
+                println!(
+                    "function call:\nmethod: {}\ngas: {}\ndeposit: {}",
+                    &f.method_name, f.gas, f.deposit
+                );
+                match String::from_utf8(f.args.clone()) {
+                    Ok(args) => println!("args: {}", args),
+                    Err(_) => println!("non utf8 args len {}", f.args.len()),
+                };
+            }
+            _ => {
+                println!("{:?}", a);
+            }
+        };
+    }
+}
+
+pub(crate) fn show_account_txs(
+    _home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    start_height: BlockHeight,
+    end_height: BlockHeight,
+    account_id: AccountId,
+    partial_match: bool,
+    show_signer: bool,
+    show_receiver: bool,
+) -> anyhow::Result<()> {
+    if !show_signer && !show_receiver {
+        anyhow::bail!("what u want me to do?");
+    }
+
+    let chain = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+
+    for height in start_height..end_height {
+        let block_hash = match chain.get_block_hash_by_height(height) {
+            Ok(h) => h,
+            Err(Error::DBNotFoundErr(_)) => continue,
+            Err(e) => {
+                return Err(e).with_context(|| format!("cant get block hash for #{}", height))
+            }
+        };
+        let block = match chain.get_block(&block_hash) {
+            Ok(b) => b,
+            Err(Error::DBNotFoundErr(_)) => {
+                tracing::info!("no more blocks");
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        for c in block.chunks().iter() {
+            if c.height_included() != block.header().height() {
+                continue;
+            }
+
+            let chunk = match chain.get_chunk(&c.chunk_hash()) {
+                Ok(c) => c,
+                Err(Error::DBNotFoundErr(_)) => {
+                    tracing::debug!("chunk #{} shard {} not available", height, c.shard_id());
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            };
+
+            for (i, tx) in chunk.transactions().iter().enumerate() {
+                if (show_signer
+                    && account_matches(&tx.transaction.signer_id, &account_id, partial_match))
+                    || (show_receiver
+                        && account_matches(&tx.transaction.receiver_id, &account_id, partial_match))
+                {
+                    println!(
+                        "#{} shard {} transaction {} {}. signer: {} receiver: {}. {} actions\n-----------------------",
+                        height,
+                        c.shard_id(),
+                        i,
+                        tx.get_hash(),
+                        &tx.transaction.signer_id,
+                        &tx.transaction.receiver_id,
+                        tx.transaction.actions.len(),
+                    );
+                    print_actions(tx);
+
+                    let outcome =
+                        get_execution_outcome(&chain, &tx.get_hash()).with_context(|| {
+                            format!("Could not find execution outcome for tx {}", tx.get_hash())
+                        })?;
+                    println!("{:?}\n-----------------\n", &outcome.outcome_with_id);
+                    if &tx.transaction.signer_id == &tx.transaction.receiver_id {
+                        if let ExecutionStatus::SuccessReceiptId(id) =
+                            &outcome.outcome_with_id.outcome.status
+                        {
+                            let o = get_execution_outcome(&chain, id).with_context(|| {
+                                format!("Could not find execution outcome for local receipt {} for tx {}", id, tx.get_hash())
+                            })?;
+                            println!(
+                                "local receipt outcome:\n{:?}\n--------------------\n",
+                                &o.outcome_with_id
+                            );
+                        }
+                    }
+                }
+            }
+            for (i, r) in chunk.prev_outgoing_receipts().iter().enumerate() {
+                if (show_signer && account_matches(&r.predecessor_id, &account_id, partial_match))
+                    || (show_receiver
+                        && account_matches(&r.receiver_id, &account_id, partial_match))
+                {
+                    println!(
+                        "#{} shard {} receipt {} {} predecessor: {} receiver: {}, actions: {}\n-----------------------",
+                        height,
+                        c.shard_id(),
+                        i,
+                        &r.receipt_id,
+                        &r.predecessor_id,
+                        &r.receiver_id,
+                        match &r.receipt {
+                            ReceiptEnum::Data(_) => "DATA".to_string(),
+                            ReceiptEnum::Action(a) => {
+                                    a.actions.iter().map(|a| a.as_ref().to_string()).collect::<Vec<_>>().join(", ")
+                            }
+                        }
+                    );
+
+                    match get_execution_outcome(&chain, &r.receipt_id) {
+                        Ok(outcome) => {
+                            println!("{:?}\n------------------------\n", &outcome.outcome_with_id);
+                        }
+                        Err(Error::DBNotFoundErr(_)) => {
+                            println!("no outcome");
+                        }
+                        Err(e) => {
+                            return Err(e).with_context(|| {
+                                format!("failed getting outcome for receipt {}", &r.receipt_id)
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
