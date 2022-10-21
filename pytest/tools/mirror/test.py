@@ -175,8 +175,8 @@ def start_mirror(near_root, source_home, target_home, boot_node):
         open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
         process = subprocess.Popen([
             os.path.join(near_root, 'mirror'), 'run', "--source-home",
-            source_home, "--target-home", target_home, '--secret-file',
-            target_home / 'mirror-secret.json'
+            source_home, "--online-source", "--target-home", target_home,
+            '--secret-file', target_home / 'mirror-secret.json'
         ],
                                    stdin=subprocess.DEVNULL,
                                    stdout=stdout,

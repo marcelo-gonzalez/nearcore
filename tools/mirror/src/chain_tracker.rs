@@ -174,20 +174,38 @@ pub(crate) struct TxTracker {
     txs_awaiting_nonce: HashMap<BlockHeight, Vec<TxRef>>,
     pending_access_keys: HashMap<(AccountId, PublicKey), usize>,
     height_queued: Option<BlockHeight>,
+    nonempty_height_queued: Option<BlockHeight>,
+    height_popped: Option<BlockHeight>,
+    height_seen: Option<BlockHeight>,
     send_time: Option<Pin<Box<tokio::time::Sleep>>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
     min_block_production_delay: Duration,
     // timestamps in the target chain, used to judge how long to wait before sending a new batch of txs
     recent_block_timestamps: VecDeque<u64>,
+    // last source block we'll be sending transactions for
+    stop_height: Option<BlockHeight>,
 }
 
 impl TxTracker {
-    pub(crate) fn new(min_block_production_delay: Duration) -> Self {
-        Self { min_block_production_delay, ..Default::default() }
+    pub(crate) fn new(
+        min_block_production_delay: Duration,
+        stop_height: Option<BlockHeight>,
+    ) -> Self {
+        Self { min_block_production_delay, stop_height, ..Default::default() }
     }
 
     pub(crate) fn height_queued(&self) -> Option<BlockHeight> {
         self.height_queued
+    }
+
+    pub(crate) fn finished(&self) -> bool {
+        match self.stop_height {
+            Some(_) => {
+                self.height_popped >= self.stop_height
+                    && self.height_seen >= self.nonempty_height_queued
+            }
+            None => false,
+        }
     }
 
     pub(crate) fn num_blocks_queued(&self) -> usize {
@@ -259,6 +277,9 @@ impl TxTracker {
         self.height_queued = Some(block.source_height);
         let mut txs_awaiting_nonce = Vec::new();
         for c in block.chunks.iter() {
+            if !c.txs.is_empty() {
+                self.nonempty_height_queued = Some(block.source_height);
+            }
             for (tx_idx, tx) in c.txs.iter().enumerate() {
                 if let crate::TargetChainTx::AwaitingNonce(tx) = tx {
                     txs_awaiting_nonce.push(TxRef {
@@ -304,6 +325,7 @@ impl TxTracker {
                     }
                 }
             }
+            self.height_popped = Some(block.source_height);
         }
         block
     }
@@ -377,6 +399,9 @@ impl TxTracker {
                     if let Some(info) = self.sent_txs.remove(&tx.transaction.hash) {
                         crate::metrics::TRANSACTIONS_INCLUDED.inc();
                         self.remove_tx(tx);
+                        if Some(info.source_height) > self.height_seen {
+                            self.height_seen = Some(info.source_height);
+                        }
                         write!(
                             log_message,
                             "source #{}{} tx #{} signer: \"{}\"{} receiver: \"{}\"{} actions: <{}> sent {:?} ago @ target #{}\n",
