@@ -90,6 +90,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    ShowAccountTxs(ShowAccountTxsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -146,6 +147,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ShowAccountTxs(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -648,6 +650,39 @@ impl clap::ValueEnum for ViewTrieFormat {
             Self::Full => Some(clap::builder::PossibleValue::new("full")),
             Self::Pretty => Some(clap::builder::PossibleValue::new("pretty")),
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ShowAccountTxsCmd {
+    #[clap(long)]
+    start_height: u64,
+    #[clap(long)]
+    end_height: u64,
+    #[clap(long)]
+    account_id: String,
+    #[clap(long)]
+    partial_match: bool,
+    #[clap(long)]
+    no_signer: bool,
+    #[clap(long)]
+    no_receiver: bool,
+}
+
+impl ShowAccountTxsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        show_account_txs(
+            home_dir,
+            near_config,
+            store,
+            self.start_height,
+            self.end_height,
+            self.account_id.parse().unwrap(),
+            self.partial_match,
+            !self.no_signer,
+            !self.no_receiver,
+        )
+        .unwrap();
     }
 }
 
