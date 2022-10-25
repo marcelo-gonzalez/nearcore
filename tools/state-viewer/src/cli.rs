@@ -73,6 +73,8 @@ pub enum StateViewerSubCommand {
     ViewTrie(ViewTrieCmd),
     /// Dump all or a single state part of a shard.
     DumpStateParts(DumpStatePartsCmd),
+    /// show block/chunk production
+    Validators(ValidatorsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -107,6 +109,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(hot),
+            StateViewerSubCommand::Validators(cmd) => cmd.run(home_dir, near_config, hot),
         }
     }
 }
@@ -502,5 +505,17 @@ impl DumpStatePartsCmd {
             store,
             &self.output_dir,
         );
+    }
+}
+
+#[derive(Parser)]
+pub struct ValidatorsCmd {
+    #[clap(long)]
+    height: u64,
+}
+
+impl ValidatorsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        validators(self.height, home_dir, near_config, store).unwrap();
     }
 }
