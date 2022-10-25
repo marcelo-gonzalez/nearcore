@@ -806,6 +806,61 @@ pub(crate) fn view_chain(
     }
 }
 
+pub(crate) fn validators(
+    height: u64,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) -> anyhow::Result<()> {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let chain_store =
+        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+
+    let head = chain_store.head().unwrap().height;
+    let block_hash = chain_store.get_block_hash_by_height(height)?;
+    let block = chain_store.get_block(&block_hash)?;
+    let epoch_id = block.header().epoch_id().clone();
+
+    let epoch_start = epoch_manager.get_epoch_start_height(&block_hash)?;
+    let mut height = epoch_start;
+    loop {
+        if height > epoch_start + near_config.genesis.config.epoch_length || height > head {
+            break;
+        }
+        let p = epoch_manager.get_block_producer(&epoch_id, height)?;
+
+        match chain_store.get_block_hash_by_height(height) {
+            Ok(h) => {
+                let block = chain_store.get_block(&h)?;
+                if block.header().epoch_id() != &epoch_id {
+                    break;
+                }
+
+                let mut chunks = String::new();
+                for c in block.chunks().iter() {
+                    let chunk_producer =
+                    epoch_manager.get_chunk_producer(&epoch_id, height, c.shard_id())?;
+                    if c.height_included() == block.header().height() {
+                        chunks += &format!("{}, ", chunk_producer);
+                    } else {
+                        chunks += &format!("BADDDD <{}> BADDDDD, ", chunk_producer);
+                    }
+                }
+                println!("{}: {}: {}", height, p, chunks);
+                height += 1;
+            }
+            Err(_) => {
+                println!("{}: {}: not produced", height, p);
+                height += 1;
+                continue;
+            }
+        };
+    }
+
+    Ok(())
+}
+
 pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store =
