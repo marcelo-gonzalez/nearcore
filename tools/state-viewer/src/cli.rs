@@ -94,6 +94,8 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    /// show block/chunk production
+    Validators(ValidatorsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -148,6 +150,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Validators(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
@@ -794,3 +797,16 @@ impl ViewTrieCmd {
         }
     }
 }
+
+#[derive(clap::Parser)]
+pub struct ValidatorsCmd {
+    #[clap(long)]
+    height: u64,
+}
+
+impl ValidatorsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        validators(self.height, home_dir, near_config, store).unwrap();
+    }
+}
+
