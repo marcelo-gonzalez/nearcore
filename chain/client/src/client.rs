@@ -1983,7 +1983,7 @@ impl Client {
                 // for the shard.
                 // If I'm not an active validator I should forward tx to next validators.
                 self.sharded_tx_pool.insert_transaction(shard_id, tx.clone());
-                trace!(target: "client", shard_id, "Recorded a transaction.");
+                debug!(target: "client", shard_id, "Recorded a transaction. {:?}", tx.get_hash());
 
                 // Active validator:
                 //   possibly forward to next epoch validators
