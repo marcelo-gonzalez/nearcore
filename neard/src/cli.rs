@@ -35,6 +35,52 @@ pub(super) struct NeardCmd {
     subcmd: NeardSubCommand,
 }
 
+#[derive(Parser)]
+pub(super) struct DBCmd {
+    #[clap(long)]
+    key: String,
+    #[clap(long)]
+    trunc: Option<usize>,
+    #[clap(long)]
+    iter: bool,
+}
+
+impl DBCmd {
+    fn run(self, home: &Path) -> anyhow::Result<()> {
+        use near_store::db::Database;
+
+        let mut k = vec![0; 1024];
+        let len = bs58::decode(&self.key).into(&mut k)?;
+
+        let k = match self.trunc {
+            Some(t) => {
+                if t > len {
+                    anyhow::bail!("trunc too big");
+                } else {
+                    &k[..len - t]
+                }
+            }
+            None => &k[..len],
+        };
+
+        let db = near_store::db::RocksDB::open(
+            home,
+            &near_store::config::StoreConfig::default(),
+            near_store::config::Mode::ReadOnly,
+        )?;
+        if self.iter {
+            for r in db.iter_prefix(near_store::DBCol::TransactionResultForBlock, k) {
+                let (k, v) = r?;
+                println!("{} {}", k.len(), v.len());
+            }
+        } else {
+            let v = db.get_raw_bytes(near_store::DBCol::TransactionResultForBlock, k)?;
+            println!("{:?}", v.map(|v| v.len()));
+        }
+        Ok(())
+    }
+}
+
 impl NeardCmd {
     pub(super) fn parse_and_run() -> anyhow::Result<()> {
         let neard_cmd = Self::parse();
@@ -97,6 +143,7 @@ impl NeardCmd {
             NeardSubCommand::Mirror(cmd) => {
                 cmd.run()?;
             }
+            NeardSubCommand::DB(cmd) => cmd.run(&home_dir)?,
         };
         Ok(())
     }
@@ -189,6 +236,8 @@ pub(super) enum NeardSubCommand {
     /// Mirror transactions from a source chain to a test chain with state forked
     /// from it, reproducing traffic and state as closely as possible.
     Mirror(MirrorCommand),
+
+    DB(DBCmd),
 }
 
 #[derive(Parser)]

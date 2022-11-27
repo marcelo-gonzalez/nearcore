@@ -3672,6 +3672,7 @@ dependencies = [
  "actix",
  "ansi_term",
  "anyhow",
+ "bs58",
  "clap 3.1.18",
  "futures",
  "near-chain-configs",
