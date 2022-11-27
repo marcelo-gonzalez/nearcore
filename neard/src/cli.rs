@@ -1,5 +1,6 @@
 use crate::log_config_watcher::{LogConfigWatcher, UpdateBehavior};
 use actix::SystemRunner;
+use borsh::BorshDeserialize;
 use clap::{Args, Parser};
 use near_chain_configs::GenesisValidationMode;
 use near_o11y::{
@@ -25,6 +26,32 @@ pub(super) struct NeardCmd {
     opts: NeardOpts,
     #[clap(subcommand)]
     subcmd: NeardSubCommand,
+}
+
+#[derive(Parser)]
+pub(super) struct DBCmd {}
+
+impl DBCmd {
+    fn run(self, home: &Path) -> anyhow::Result<()> {
+        use near_primitives::hash::CryptoHash;
+        use near_primitives::transaction::ExecutionOutcomeWithIdAndProof;
+        use near_store::db::Database;
+
+        let db = near_store::db::RocksDB::open(
+            &home.join("data/"),
+            &near_store::StoreConfig::default(),
+            near_store::db::Mode::ReadOnly,
+        )?;
+        for (k, v) in db.iter(near_store::DBCol::TransactionResult) {
+            let id = CryptoHash::try_from_slice(&k).unwrap();
+            let outcomes = Vec::<ExecutionOutcomeWithIdAndProof>::try_from_slice(&v).unwrap();
+            let block_hashes = outcomes.iter().map(|o| o.block_hash.clone()).collect::<Vec<_>>();
+            for block_hash in block_hashes {
+                println!("{} {}", id, block_hash);
+            }
+        }
+        Ok(())
+    }
 }
 
 impl NeardCmd {
@@ -77,6 +104,7 @@ impl NeardCmd {
             NeardSubCommand::RecompressStorage(cmd) => {
                 cmd.run(&home_dir);
             }
+            NeardSubCommand::DB(cmd) => cmd.run(&home_dir).unwrap(),
         };
         Ok(())
     }
@@ -186,6 +214,7 @@ pub(super) enum NeardSubCommand {
     /// tool, it is planned to be removed by the end of 2022.
     #[clap(alias = "recompress_storage")]
     RecompressStorage(RecompressStorageSubCommand),
+    DB(DBCmd),
 }
 
 #[derive(Parser)]
