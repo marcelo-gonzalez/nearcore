@@ -3752,6 +3752,7 @@ dependencies = [
  "actix",
  "ansi_term",
  "anyhow",
+ "bs58",
  "clap 3.1.18",
  "cold-store-tool",
  "futures",

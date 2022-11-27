@@ -43,6 +43,29 @@ pub(super) struct NeardCmd {
     subcmd: NeardSubCommand,
 }
 
+#[derive(Parser)]
+pub(super) struct DBCmd {
+}
+
+impl DBCmd {
+    fn run(self, home: &Path) -> anyhow::Result<()> {
+        use near_store::db::Database;
+
+        let db = near_store::db::RocksDB::open(
+            &home.join("data/"),
+            &near_store::config::StoreConfig::default(),
+            near_store::config::Mode::ReadOnly,
+            near_store::Temperature::Hot,
+        )?;
+        for r in db.iter(near_store::DBCol::TransactionResultForBlock) {
+            let (k, _v) = r?;
+            let (id, block_hash) = near_primitives::utils::get_outcome_id_block_hash_rev(&k)?;
+            println!("{} {}", id, block_hash);
+        }
+        Ok(())
+    }
+}
+
 impl NeardCmd {
     pub(super) fn parse_and_run() -> anyhow::Result<()> {
         let neard_cmd = Self::parse();
@@ -115,6 +138,7 @@ impl NeardCmd {
             NeardSubCommand::ColdStore(cmd) => {
                 cmd.run(&home_dir);
             }
+            NeardSubCommand::DB(cmd) => cmd.run(&home_dir)?,
         };
         Ok(())
     }
@@ -218,6 +242,7 @@ pub(super) enum NeardSubCommand {
     #[cfg(feature = "cold_store")]
     /// Testing tool for cold storage
     ColdStore(ColdStoreCommand),
+    DB(DBCmd),
 }
 
 #[derive(Parser)]

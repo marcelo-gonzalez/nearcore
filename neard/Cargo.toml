@@ -12,6 +12,7 @@ name = "neard"
 
 [dependencies]
 actix.workspace = true
+bs58.workspace = true
 ansi_term.workspace = true
 anyhow.workspace = true
 clap.workspace = true
