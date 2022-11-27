@@ -582,6 +582,7 @@ impl ChainStore {
             .map(|item| {
                 let (key, outcome_with_proof) = item?;
                 let (_, block_hash) = get_outcome_id_block_hash_rev(key.as_ref())?;
+                tracing::info!(target: "chain", "got outcome {:?} in {} for {}", &outcome_with_proof.outcome, &block_hash, id);
                 Ok(ExecutionOutcomeWithIdAndProof {
                     proof: outcome_with_proof.proof,
                     block_hash,
