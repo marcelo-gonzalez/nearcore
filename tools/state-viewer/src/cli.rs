@@ -73,6 +73,7 @@ pub enum StateViewerSubCommand {
     ViewTrie(ViewTrieCmd),
     /// Dump all or a single state part of a shard.
     DumpStateParts(DumpStatePartsCmd),
+    Outcome(OutcomeCmd),
 }
 
 impl StateViewerSubCommand {
@@ -106,6 +107,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::Outcome(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(hot),
         }
     }
@@ -453,6 +455,19 @@ impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         apply_receipt(home_dir, near_config, store, hash).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct OutcomeCmd {
+    #[clap(long)]
+    id: String,
+}
+
+impl OutcomeCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        let id = CryptoHash::from_str(&self.id).unwrap();
+        show_outcome(home_dir, near_config, store, id).unwrap();
     }
 }
 

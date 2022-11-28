@@ -813,6 +813,20 @@ pub(crate) fn apply_receipt(
         .map(|_| ())
 }
 
+pub(crate) fn show_outcome(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    id: CryptoHash,
+) -> anyhow::Result<()> {
+    // let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+
+    let outcomes = chain_store.get_outcomes_by_id(&id)?;
+    println!("{:?}", outcomes);
+    Ok(())
+}
+
 pub(crate) fn view_trie(
     store: Store,
     hash: CryptoHash,
