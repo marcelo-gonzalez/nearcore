@@ -295,6 +295,8 @@ pub struct ViewChainCmd {
     #[clap(long)]
     height: Option<BlockHeight>,
     #[clap(long)]
+    hash: Option<String>,
+    #[clap(long)]
     block: bool,
     #[clap(long)]
     chunk: bool,
@@ -302,7 +304,8 @@ pub struct ViewChainCmd {
 
 impl ViewChainCmd {
     pub fn run(self, near_config: NearConfig, store: Store) {
-        view_chain(self.height, self.block, self.chunk, near_config, store);
+        let hash = self.hash.map(|h| CryptoHash::from_str(&h).unwrap());
+        view_chain(self.height, hash, self.block, self.chunk, near_config, store);
     }
 }
 
