@@ -510,6 +510,7 @@ pub(crate) fn apply_block_at_height(
 
 pub(crate) fn view_chain(
     height: Option<BlockHeight>,
+    hash: Option<CryptoHash>,
     view_block: bool,
     view_chunks: bool,
     near_config: NearConfig,
@@ -527,10 +528,13 @@ pub(crate) fn view_chain(
                     chain_store.get_block_hash_by_height(h).expect("Block does not exist");
                 chain_store.get_block(&block_hash).unwrap()
             }
-            None => {
-                let head = chain_store.head().unwrap();
-                chain_store.get_block(&head.last_block_hash).unwrap()
-            }
+            None => match hash {
+                Some(hash) => chain_store.get_block(&hash).unwrap(),
+                None => {
+                    let head = chain_store.head().unwrap();
+                    chain_store.get_block(&head.last_block_hash).unwrap()
+                }
+            },
         }
     };
     let epoch_manager = EpochManager::new_from_genesis_config(store, &near_config.genesis.config)
@@ -795,7 +799,8 @@ pub(crate) fn show_outcome(
     id: CryptoHash,
 ) -> anyhow::Result<()> {
     // let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
-    let chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+    let chain_store =
+        ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
 
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     println!("{:?}", outcomes);
