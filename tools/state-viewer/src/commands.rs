@@ -787,3 +787,17 @@ pub(crate) fn apply_receipt(
     apply_chunk::apply_receipt(near_config.genesis.config.genesis_height, &runtime, store, hash)
         .map(|_| ())
 }
+
+pub(crate) fn show_outcome(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    id: CryptoHash,
+) -> anyhow::Result<()> {
+    // let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let chain_store = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+
+    let outcomes = chain_store.get_outcomes_by_id(&id)?;
+    println!("{:?}", outcomes);
+    Ok(())
+}
