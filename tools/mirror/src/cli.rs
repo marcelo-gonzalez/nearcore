@@ -1,8 +1,11 @@
 use anyhow::Context;
 use clap::Parser;
+use near_crypto::PublicKey;
+use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
 use std::cell::Cell;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 #[derive(Parser)]
 pub struct MirrorCommand {
@@ -14,6 +17,7 @@ pub struct MirrorCommand {
 enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
+    MapKey(MapKeyCmd),
 }
 
 /// initialize a target chain with genesis records from the source chain, and
@@ -129,6 +133,40 @@ impl PrepareCmd {
     }
 }
 
+#[derive(Parser)]
+struct MapKeyCmd {
+    #[clap(long)]
+    secret_file: Option<PathBuf>,
+    #[clap(long)]
+    account_id: Option<AccountId>,
+    #[clap(long)]
+    public_key: Option<String>,
+}
+
+impl MapKeyCmd {
+    fn run(self) -> anyhow::Result<()> {
+        let secret = match &self.secret_file {
+            Some(f) => crate::secret::load(f)
+                .with_context(|| format!("Could not load secret from {:?}", &self.secret_file))?,
+            None => None,
+        };
+        if let Some(account_id) = &self.account_id {
+            if account_id.is_implicit() {
+                let s = crate::key_mapping::implicit_account_key(account_id);
+                let mapped = crate::key_mapping::map_account(account_id, secret.as_ref());
+                let t = crate::key_mapping::implicit_account_key(&mapped);
+                println!("account: {} {:?} -> {} {:?}", account_id, s, &mapped, &t);
+            }
+        }
+        if let Some(k) = &self.public_key {
+            let k = PublicKey::from_str(k).context("Could not parse key")?;
+            let mapped_secret = crate::key_mapping::map_key(&k, secret.as_ref());
+            println!("secret: {}\npublic: {}", &mapped_secret, mapped_secret.public_key());
+        }
+        Ok(())
+    }
+}
+
 // copied from neard/src/cli.rs
 fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
     // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
@@ -149,6 +187,7 @@ impl MirrorCommand {
         match self.subcmd {
             SubCommand::Prepare(r) => r.run(),
             SubCommand::Run(r) => r.run(),
+            SubCommand::MapKey(r) => r.run(),
         }
     }
 }

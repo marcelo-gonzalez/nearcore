@@ -40,7 +40,7 @@ mod key_mapping;
 mod metrics;
 mod offline;
 mod online;
-mod secret;
+pub mod secret;
 
 pub use cli::MirrorCommand;
 
