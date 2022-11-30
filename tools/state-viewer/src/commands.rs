@@ -813,6 +813,47 @@ pub(crate) fn apply_receipt(
         .map(|_| ())
 }
 
+pub(crate) fn view_keys(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    account_id: AccountId,
+    block_hash: CryptoHash,
+) -> anyhow::Result<()> {
+    use near_primitives::views::{
+        AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
+        ReceiptView,
+    };
+    let runtime = NightshadeRuntime::from_config(home_dir, store.clone(), &near_config);
+    let chain = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+
+    let header = chain.get_block_header(&block_hash)?;
+    let shard_id = runtime.account_id_to_shard_id(&account_id, header.epoch_id())?;
+    let shard_uid = runtime.shard_id_to_uid(shard_id, header.epoch_id())?;
+    let chunk_extra = chain.get_chunk_extra(header.hash(), &shard_uid)?;
+    match runtime
+        .query(
+            shard_uid,
+            chunk_extra.state_root(),
+            header.height(),
+            header.raw_timestamp(),
+            header.prev_hash(),
+            header.hash(),
+            header.epoch_id(),
+            &QueryRequest::ViewAccessKeyList { account_id },
+        )?
+        .kind
+    {
+        QueryResponseKind::AccessKeyList(l) => {
+            for k in l.keys {
+                dbg!(k);
+            }
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
 pub(crate) fn view_trie(
     store: Store,
     hash: CryptoHash,

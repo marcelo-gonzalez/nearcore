@@ -64,6 +64,7 @@ pub enum StateViewerSubCommand {
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_tx")]
     ApplyTx(ApplyTxCmd),
+    ViewKeys(ViewKeysCmd),
     /// Apply a receipt if it occurs in some chunk we know about,
     /// even if it's not included in any block on disk
     #[clap(alias = "apply_receipt")]
@@ -106,6 +107,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ApplyTx(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, hot),
+            StateViewerSubCommand::ViewKeys(cmd) => cmd.run(home_dir, near_config, hot),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(hot),
         }
     }
@@ -453,6 +455,20 @@ impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
         apply_receipt(home_dir, near_config, store, hash).unwrap();
+    }
+}
+
+#[derive(Parser)]
+pub struct ViewKeysCmd {
+    #[clap(long)]
+    block_hash: CryptoHash,
+    #[clap(long)]
+    account_id: AccountId,
+}
+
+impl ViewKeysCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_keys(home_dir, near_config, store, self.account_id, self.block_hash).unwrap();
     }
 }
 
