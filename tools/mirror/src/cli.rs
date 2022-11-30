@@ -1,6 +1,8 @@
+use crate::ChainAccess;
 use anyhow::Context;
 use clap::Parser;
 use near_crypto::PublicKey;
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
 use std::cell::Cell;
@@ -18,6 +20,7 @@ enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
     MapKey(MapKeyCmd),
+    ViewKeys(ViewKeysCmd),
 }
 
 /// initialize a target chain with genesis records from the source chain, and
@@ -167,6 +170,29 @@ impl MapKeyCmd {
     }
 }
 
+#[derive(Parser)]
+struct ViewKeysCmd {
+    #[clap(long)]
+    account_id: AccountId,
+    #[clap(long)]
+    home: PathBuf,
+    #[clap(long)]
+    block_hash: CryptoHash,
+}
+
+impl ViewKeysCmd {
+    fn run(self) -> anyhow::Result<()> {
+        let runtime = tokio::runtime::Runtime::new().context("failed to start tokio runtime")?;
+        let s = crate::offline::ChainAccess::new(&self.home)?;
+
+        runtime.block_on(async move {
+            dbg!(s.get_full_access_keys(&self.account_id, &self.block_hash).await);
+        });
+
+        Ok(())
+    }
+}
+
 // copied from neard/src/cli.rs
 fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
     // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
@@ -188,6 +214,7 @@ impl MirrorCommand {
             SubCommand::Prepare(r) => r.run(),
             SubCommand::Run(r) => r.run(),
             SubCommand::MapKey(r) => r.run(),
+            SubCommand::ViewKeys(r) => r.run(),
         }
     }
 }

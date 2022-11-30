@@ -148,7 +148,9 @@ impl crate::ChainAccess for ChainAccess {
         {
             QueryResponseKind::AccessKeyList(l) => {
                 for k in l.keys {
+                    eprintln!("found {:?}", &k);
                     if k.access_key.permission == AccessKeyPermissionView::FullAccess {
+                        eprintln!("push {:?}", &k.public_key);
                         ret.push(k.public_key);
                     }
                 }
