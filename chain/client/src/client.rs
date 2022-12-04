@@ -1172,6 +1172,7 @@ impl Client {
         let next_block_producer =
             self.runtime_adapter.get_block_producer(&next_epoch_id, approval.target_height)?;
         if Some(&next_block_producer) == self.validator_signer.as_ref().map(|x| x.validator_id()) {
+            debug!(target: "client", "Sending an approval to myself {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer, approval.target_height);
             self.collect_block_approval(&approval, ApprovalType::SelfApproval);
         } else {
             debug!(target: "client", "Sending an approval {:?} from {} to {} for {}", approval.inner, approval.account_id, next_block_producer, approval.target_height);

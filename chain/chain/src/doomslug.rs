@@ -211,6 +211,8 @@ impl DoomslugApprovalsTracker {
     /// `ReadySince` if the block has enough approvals to pass the threshold, and since when it
     ///     does
     fn get_block_production_readiness(&mut self, now: Instant) -> DoomslugBlockProductionReadiness {
+        tracing::debug!(target: "client", "get_block_production_readiness({:?}) this approved {} this total {} next approved {} next total {}",
+        &self.threshold_mode, self.approved_stake_this_epoch, self.total_stake_this_epoch, self.approved_stake_next_epoch, self.total_stake_next_epoch);
         if (self.approved_stake_this_epoch > self.total_stake_this_epoch * 2 / 3
             && (self.approved_stake_next_epoch > self.total_stake_next_epoch * 2 / 3
                 || self.total_stake_next_epoch == 0))
@@ -289,6 +291,7 @@ impl DoomslugApprovalsTrackersAtHeight {
 
         assert_eq!(account_id_to_stakes.len(), stakes.len());
 
+        tracing::debug!(target: "client", "asdf process_approval({:?}) account_id_to_stakes {:?}", approval, &account_id_to_stakes);
         if !account_id_to_stakes.contains_key(&approval.account_id) {
             return DoomslugBlockProductionReadiness::NotReady;
         }
@@ -614,6 +617,7 @@ impl Doomslug {
             }
         }
 
+        tracing::debug!(target: "client", "on_approval_message_internal({:?}) = {:?}. largest_threshold = {}", approval, &ret, self.largest_threshold_height);
         ret
     }
 
