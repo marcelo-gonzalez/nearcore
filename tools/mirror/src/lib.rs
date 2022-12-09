@@ -1260,6 +1260,7 @@ impl<T: ChainAccess> TxMirror<T> {
             .with_context(|| {
                 format!("Failed fetching chunks for source chain #{}", create_account_height)
             })?;
+        let mut added_chunk = false;
         for ch in source_chunks {
             let txs = match chunks.iter_mut().find(|c| c.shard_id == ch.shard_id) {
                 Some(c) => &mut c.txs,
@@ -1270,6 +1271,10 @@ impl<T: ChainAccess> TxMirror<T> {
                         ch.shard_id,
                         create_account_height
                     );
+                    if chunks.is_empty() {
+                        chunks.push(MappedChunk { shard_id: 0, txs: Vec::new() });
+                        added_chunk = true;
+                    }
                     &mut chunks[0].txs
                 }
             };
@@ -1301,6 +1306,9 @@ impl<T: ChainAccess> TxMirror<T> {
                 )
                 .await?;
             }
+        }
+        if added_chunk && chunks[0].txs.is_empty() {
+            chunks.clear();
         }
         Ok(())
     }
