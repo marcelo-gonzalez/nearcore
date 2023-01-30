@@ -134,7 +134,7 @@ impl GenesisStateApplier {
                     state_update.set(TrieKey::ContractData { key: data_key, account_id }, value);
                 }
                 StateRecord::Contract { account_id, code } => {
-                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect("Code state record should be preceded by the corresponding account record");
+                    let acc = get_account(&state_update, &account_id).expect("Failed to read state").expect(|| format!("account: {} Code state record should be preceded by the corresponding account record", &account_id));
                     // Recompute contract code hash.
                     let code = ContractCode::new(code, None);
                     set_code(&mut state_update, account_id, &code);
