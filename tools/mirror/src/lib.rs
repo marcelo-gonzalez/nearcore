@@ -1560,3 +1560,111 @@ async fn run<P: AsRef<Path>>(
             .await
     }
 }
+
+#[derive(Clone)]
+struct Obj {
+    ancestors: Vec<CryptoHash>,
+    origin_height: BlockHeight,
+}
+
+fn show_stakes<P: AsRef<Path>>(source_home: P, start_height: BlockHeight) -> anyhow::Result<()> {
+    use near_chain::{ChainStore, ChainStoreAccess};
+    use near_primitives::receipt::ReceiptEnum;
+    use std::collections::HashMap;
+
+    let config =
+        nearcore::config::load_config(source_home.as_ref(), GenesisValidationMode::UnsafeFast)
+            .with_context(|| format!("Error loading config from {:?}", source_home.as_ref()))?;
+    let store_opener =
+        near_store::NodeStorage::opener(source_home.as_ref(), &config.config.store, None);
+    let store = store_opener
+        .open()
+        .with_context(|| format!("Error opening store in {:?}", source_home.as_ref()))?
+        .get_store(near_store::Temperature::Hot);
+    let chain = ChainStore::new(
+        store.clone(),
+        config.genesis.config.genesis_height,
+        !config.client_config.archive,
+    );
+
+    let head = chain.head().unwrap();
+
+    let mut objects = HashMap::new();
+    let mut height = start_height;
+    loop {
+        if height > head.height {
+            break;
+        }
+        let h = match chain.get_block_hash_by_height(height) {
+            Ok(h) => h,
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => {
+                height += 1;
+                continue;
+            }
+            Err(e) => return Err(e).context("block hash by height"),
+        };
+        let b = chain.get_block(&h).unwrap();
+        for c in b.chunks().iter() {
+            let chunk = chain.get_chunk(&c.chunk_hash()).unwrap();
+
+            for tx in chunk.transactions() {
+                for a in tx.transaction.actions.iter() {
+                    match a {
+                        Action::Stake(s) => {
+                            println!(
+                                "signer: {} receiver: {} stake {} tx",
+                                &tx.transaction.signer_id, &tx.transaction.receiver_id, s.stake
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                objects.insert(tx.get_hash(), Obj { ancestors: vec![], origin_height: height });
+            }
+            for r in chunk.receipts() {
+                match &r.receipt {
+                    ReceiptEnum::Action(a) => {
+                        for a in a.actions.iter() {
+                            match a {
+                                Action::Stake(s) => {
+                                    let data = match objects.get(&r.receipt_id) {
+                                        Some(o) => format!(
+                                            "origin: {} {}",
+                                            o.origin_height,
+                                            o.ancestors
+                                                .iter()
+                                                .map(|h| format!("{}", h))
+                                                .collect::<Vec<_>>()
+                                                .join(" -> ")
+                                        ),
+                                        None => String::from("no known ancestor"),
+                                    };
+                                    println!(
+                                        "receiver: {} stake {} {}",
+                                        &r.receiver_id, s.stake, data
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let outcomes = chain.get_outcomes_by_block_hash_and_shard_id(&h, c.shard_id()).unwrap();
+            for id in outcomes {
+                let mut o = match objects.remove(&id) {
+                    Some(o) => o,
+                    None => Obj { origin_height: height, ancestors: vec![] },
+                };
+                o.ancestors.push(id);
+                let outcome = chain.get_outcome_by_id_and_block_hash(&id, &h).unwrap().unwrap();
+                for rid in outcome.outcome.receipt_ids {
+                    objects.insert(rid, o.clone());
+                }
+            }
+        }
+        height += 1;
+    }
+    Ok(())
+}

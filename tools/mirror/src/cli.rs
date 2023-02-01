@@ -14,6 +14,7 @@ pub struct MirrorCommand {
 enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
+    ShowStakes(ShowStakesCmd),
 }
 
 /// initialize a target chain with genesis records from the source chain, and
@@ -142,6 +143,20 @@ fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
     })
 }
 
+#[derive(Parser)]
+struct ShowStakesCmd {
+    #[clap(long)]
+    source_home: PathBuf,
+    #[clap(long)]
+    start_height: u64,
+}
+
+impl ShowStakesCmd {
+    fn run(self) -> anyhow::Result<()> {
+        crate::show_stakes(&self.source_home, self.start_height)
+    }
+}
+
 impl MirrorCommand {
     pub fn run(self) -> anyhow::Result<()> {
         tracing::warn!(target: "mirror", "the mirror command is not stable, and may be removed or changed arbitrarily at any time");
@@ -149,6 +164,7 @@ impl MirrorCommand {
         match self.subcmd {
             SubCommand::Prepare(r) => r.run(),
             SubCommand::Run(r) => r.run(),
+            SubCommand::ShowStakes(r) => r.run(),
         }
     }
 }
