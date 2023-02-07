@@ -14,6 +14,7 @@ pub struct MirrorCommand {
 enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
+    AddRecords(AddRecords),
 }
 
 /// initialize a target chain with genesis records from the source chain, and
@@ -129,6 +130,26 @@ impl PrepareCmd {
     }
 }
 
+#[derive(Parser)]
+struct AddRecords {
+    /// A genesis records file as output by `neard view-state
+    /// dump-state --stream`
+    #[clap(long)]
+    records_file_in: PathBuf,
+    /// Path to the new records file with updated public keys
+    #[clap(long)]
+    records_file_out: PathBuf,
+}
+
+impl AddRecords {
+    fn run(self) -> anyhow::Result<()> {
+        crate::genesis::add_records(
+            &self.records_file_in,
+            &self.records_file_out,
+        )
+    }
+}
+
 // copied from neard/src/cli.rs
 fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
     // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
@@ -149,6 +170,7 @@ impl MirrorCommand {
         match self.subcmd {
             SubCommand::Prepare(r) => r.run(),
             SubCommand::Run(r) => r.run(),
+            SubCommand::AddRecords(r) => r.run(),
         }
     }
 }
