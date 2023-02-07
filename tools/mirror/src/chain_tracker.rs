@@ -315,6 +315,11 @@ impl TxTracker {
             if let Some(nonce) = &mut info.target_nonce.nonce {
                 *nonce += 1;
             }
+            tracing::debug!(
+                "asdfasdf insert_nonce() uncached {:?} {:?}",
+                &access_key,
+                &info.target_nonce
+            );
             return Ok(info.target_nonce.clone());
         }
         let mut first_nonce = None;
@@ -333,6 +338,7 @@ impl TxTracker {
                 {
                     *nonce += 1;
                 }
+                tracing::debug!("asdfasdf insert_nonce() {:?} returning {:?}", &access_key, &n);
                 Ok(n)
             }
             None => {
