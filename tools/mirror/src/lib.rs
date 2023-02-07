@@ -761,6 +761,10 @@ impl TargetChainTx {
     }
 
     fn inc_target_nonce(&mut self, target_secret_key: &SecretKey) {
+        let (nonce, ready) = match self {
+            Self::Ready(t) => (Some(t.target_tx.transaction.nonce), true),
+            Self::AwaitingNonce(t) => (t.target_nonce.nonce, false),
+        };
         match self {
             Self::Ready(t) => t.inc_nonce(target_secret_key),
             Self::AwaitingNonce(t) => {
@@ -769,6 +773,16 @@ impl TargetChainTx {
                 }
             }
         }
+        let new_nonce = match self {
+            Self::Ready(t) => Some(t.target_tx.transaction.nonce),
+            Self::AwaitingNonce(t) => t.target_nonce.nonce,
+        };
+        tracing::debug!(
+            "asdfasdf inc_target_nonce() {} {:?} -> {:?}",
+            if ready { "ready" } else { "awaiting" },
+            nonce,
+            new_nonce
+        );
     }
 }
 
