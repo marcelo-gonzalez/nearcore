@@ -1333,18 +1333,23 @@ impl ClientActor {
             peer_info
         } else {
             if !self.client.config.skip_sync_wait {
-                warn!(target: "client", "Sync: no peers available, disabling sync");
+                warn!(target: "client", "asdf Sync: no peers available, disabling sync");
             }
             return Ok((false, 0));
         };
 
         if is_syncing {
             if peer_info.highest_block_height <= head.height {
-                info!(target: "client", "Sync: synced at {} [{}], {}, highest height peer: {}",
+                info!(target: "client", "asdf Sync: synced at {} [{}], {}, highest height peer: {}",
                       head.height, format_hash(head.last_block_hash),
                       peer_info.peer_info.id, peer_info.highest_block_height,
                 );
                 is_syncing = false;
+            } else {
+                info!(target: "client", "asdf Sync: still syncing synced at {} [{}], {}, highest height peer: {}",
+                      head.height, format_hash(head.last_block_hash),
+                      peer_info.peer_info.id, peer_info.highest_block_height,
+                );
             }
         } else {
             if peer_info.highest_block_height
@@ -1352,12 +1357,20 @@ impl ClientActor {
             {
                 info!(
                     target: "client",
-                    "Sync: height: {}, peer id/height: {}/{}, enabling sync",
+                    "asdf Sync: height: {}, peer id/height: {}/{}, enabling sync",
                     head.height,
                     peer_info.peer_info.id,
                     peer_info.highest_block_height,
                 );
                 is_syncing = true;
+            } else {
+                info!(
+                    target: "client",
+                    "asdf Sync: height: {}, peer id/height: {}/{}, not enabling sync",
+                    head.height,
+                    peer_info.peer_info.id,
+                    peer_info.highest_block_height,
+                );
             }
         }
         Ok((is_syncing, peer_info.highest_block_height))
@@ -1508,7 +1521,7 @@ impl ClientActor {
     fn run_sync_step(&mut self) {
         let _span = tracing::debug_span!(target: "client", "sync").entered();
         let _d = delay_detector::DelayDetector::new(|| "client sync".into());
-
+        tracing::info!(target: "client", "asdf run sync step");
         macro_rules! unwrap_and_report (($obj: expr) => (match $obj {
             Ok(v) => v,
             Err(err) => {
@@ -1522,9 +1535,9 @@ impl ClientActor {
 
         if !self.needs_syncing(needs_syncing) {
             if currently_syncing {
-                debug!(
+                info!(
                     target: "client",
-                    "{:?} transitions to no sync",
+                    "asdf {:?} transitions to no sync",
                     self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
                 );
                 self.client.sync_status = SyncStatus::NoSync;
@@ -1533,8 +1546,19 @@ impl ClientActor {
                 // Announce this client's account id if their epoch is coming up.
                 let head = unwrap_and_report!(self.client.chain.head());
                 self.check_send_announce_account(head.prev_block_hash);
+            } else {
+                info!(
+                    target: "client",
+                    "asdf {:?} does not transition to no sync",
+                    self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+                );
             }
         } else {
+            info!(
+                target: "client",
+                "asdf {:?} needs syncing",
+                self.client.validator_signer.as_ref().map(|vs| vs.validator_id()),
+            );
             // Run each step of syncing separately.
             unwrap_and_report!(self.client.header_sync.run(
                 &mut self.client.sync_status,
