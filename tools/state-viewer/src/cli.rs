@@ -82,6 +82,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    Proposals(ProposalsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -134,7 +135,20 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
+            StateViewerSubCommand::Proposals(cmd) => cmd.run(home_dir, near_config, store),
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ProposalsCmd {
+    #[clap(long)]
+    height: BlockHeight,
+}
+
+impl ProposalsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        print_proposals(self.height, home_dir, near_config, store).unwrap();
     }
 }
 

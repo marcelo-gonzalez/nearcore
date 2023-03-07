@@ -2,6 +2,7 @@ use crate::apply_chain_range::apply_chain_range;
 use crate::contract_accounts::ContractAccount;
 use crate::contract_accounts::ContractAccountFilter;
 use crate::contract_accounts::Summary;
+use anyhow::Context;
 use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
@@ -145,6 +146,48 @@ pub(crate) fn apply_block_at_height(
         &mut chain_store,
         shard_id,
     )
+}
+
+pub(crate) fn print_proposals(
+    start_height: BlockHeight,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) -> anyhow::Result<()> {
+    let chain_store = ChainStore::new(
+        store.clone(),
+        near_config.genesis.config.genesis_height,
+        near_config.client_config.save_trie_changes,
+    );
+    let runtime_adapter: Arc<dyn RuntimeWithEpochManagerAdapter> =
+        Arc::new(NightshadeRuntime::from_config(home_dir, store, &near_config));
+    let head = chain_store.head()?;
+
+    for height in start_height..=head.height {
+        let block_hash = match chain_store.get_block_hash_by_height(height) {
+            Ok(h) => h,
+            Err(near_chain_primitives::error::Error::DBNotFoundErr(_)) => continue,
+            Err(e) => return Err(e).with_context(|| format!("bad height {}", height)),
+        };
+        let b = chain_store
+            .get_block(&block_hash)
+            .with_context(|| format!("no block {} at height {}", block_hash, height))?;
+        for c in b.chunks().iter() {
+            let shard_id = c.shard_id();
+            let shard_uid = runtime_adapter
+                .shard_id_to_uid(shard_id, b.header().epoch_id())
+                .with_context(|| format!("shard id to uid {} {}", height, shard_id))?;
+
+            let chunk_extra = chain_store
+                .get_chunk_extra(&block_hash, &shard_uid)
+                .with_context(|| format!("no chunk extra {} {}", height, &shard_id))?;
+            let proposals = chunk_extra.validator_proposals().collect::<Vec<_>>();
+            if proposals.len() > 0 {
+                println!("{} {}: {}", height, shard_id, proposals.len());
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn apply_chunk(
