@@ -639,6 +639,7 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
 }
 
 pub(crate) fn view_chain(
+    home_dir: &Path,
     height: Option<BlockHeight>,
     view_block: bool,
     view_chunks: bool,
@@ -650,6 +651,19 @@ pub(crate) fn view_chain(
         near_config.genesis.config.genesis_height,
         near_config.client_config.save_trie_changes,
     );
+    use near_chain::chain::Chain;
+    use near_chain::types::{ChainConfig, ChainGenesis};
+    use near_chain::DoomslugThresholdMode;
+
+    let runtime = Arc::new(NightshadeRuntime::from_config(&home_dir, store.clone(), &near_config));
+    let chain = Chain::new(
+        runtime,
+        &ChainGenesis::new(&near_config.genesis),
+        DoomslugThresholdMode::TwoThirds,
+        ChainConfig { save_trie_changes: true, background_migration_threads: 2 },
+    )
+    .unwrap();
+    println!("genesis {}", chain.genesis().hash());
     let block = {
         match height {
             Some(h) => {
@@ -690,7 +704,6 @@ pub(crate) fn view_chain(
             }
         })
         .collect::<Vec<_>>();
-
     if height.is_none() {
         let head = chain_store.head().unwrap();
         println!("head: {:#?}", head);
