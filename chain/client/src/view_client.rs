@@ -354,8 +354,9 @@ impl ViewClientActor {
                 _ => QueryError::Unreachable { error_message: err.to_string() },
             })?;
 
+        let started = Instant::now();
         let state_root = chunk_extra.state_root();
-        match self.runtime_adapter.query(
+        let result = match self.runtime_adapter.query(
             shard_uid,
             state_root,
             header.height(),
@@ -410,7 +411,9 @@ impl ViewClientActor {
                     block_hash,
                 },
             }),
-        }
+        };
+        tracing::debug!(target: "view_client", "processing {:?} took {:?}", &msg.request, started.elapsed());
+        result
     }
 
     fn get_tx_status(
