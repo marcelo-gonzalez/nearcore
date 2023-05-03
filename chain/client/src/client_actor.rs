@@ -38,8 +38,8 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
-    Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse, Status,
-    StatusError, StatusSyncInfo, SyncStatus,
+    DoProtocolUpgrade, DoProtocolUpgradeError, Error, GetClientConfig, GetClientConfigError,
+    GetNetworkInfo, NetworkInfoResponse, Status, StatusError, StatusSyncInfo, SyncStatus,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -1956,6 +1956,19 @@ impl Handler<WithSpanContext<GetClientConfig>> for ClientActor {
         let _d = delay_detector::DelayDetector::new(|| "client get client config".into());
 
         Ok(self.client.config.clone())
+    }
+}
+
+impl Handler<WithSpanContext<DoProtocolUpgrade>> for ClientActor {
+    type Result = Result<(), DoProtocolUpgradeError>;
+
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<DoProtocolUpgrade>,
+        _: &mut Context<Self>,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        self.client.chain.store().set_protocol_upgrade(msg.upgrade).map_err(DoProtocolUpgradeError)
     }
 }
 

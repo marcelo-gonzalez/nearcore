@@ -873,6 +873,20 @@ impl ChainStore {
         store_update.set_ser(DBCol::BlockMisc, &key, &value)?;
         store_update.commit().map_err(|err| err.into())
     }
+
+    pub fn set_protocol_upgrade(&self, upgrade: bool) -> Result<(), Error> {
+        near_primitives::version::DO_UPGRADE.store(upgrade, std::sync::atomic::Ordering::Relaxed);
+        let mut store_update = self.store.store_update();
+        store_update.set_ser(DBCol::BlockMisc, near_store::db::DO_UPDATE_KEY, &upgrade)?;
+        store_update.commit().map_err(|err| err.into())
+    }
+
+    pub fn get_protocol_upgrade(&self) -> Result<bool, Error> {
+        self.store
+            .get_ser(DBCol::BlockMisc, near_store::db::DO_UPDATE_KEY)
+            .map_err(|err| err.into())
+            .map(|u| u.unwrap_or(false))
+    }
 }
 
 impl ChainStoreAccess for ChainStore {

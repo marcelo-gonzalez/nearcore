@@ -209,6 +209,8 @@ impl Client {
             doomslug_threshold_mode,
             chain_config.clone(),
         )?;
+        let upgrade = chain.store().get_protocol_upgrade().unwrap();
+        near_primitives::version::DO_UPGRADE.store(upgrade, std::sync::atomic::Ordering::Relaxed);
         let me = validator_signer.as_ref().map(|x| x.validator_id().clone());
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
