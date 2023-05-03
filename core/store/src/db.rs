@@ -31,6 +31,7 @@ pub const LARGEST_TARGET_HEIGHT_KEY: &[u8; 21] = b"LARGEST_TARGET_HEIGHT";
 pub const GENESIS_JSON_HASH_KEY: &[u8; 17] = b"GENESIS_JSON_HASH";
 pub const GENESIS_STATE_ROOTS_KEY: &[u8; 19] = b"GENESIS_STATE_ROOTS";
 pub const COLD_HEAD_KEY: &[u8; 9] = b"COLD_HEAD";
+pub const DO_UPDATE_KEY: &[u8; 9] = b"DO_UPDATE";
 
 #[derive(Default, Debug)]
 pub struct DBTransaction {

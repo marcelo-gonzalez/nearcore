@@ -18,6 +18,7 @@ mod sandbox;
 mod split_storage;
 mod status;
 mod transactions;
+pub(crate) mod upgrade;
 mod validator;
 
 pub(crate) trait RpcRequest: Sized {

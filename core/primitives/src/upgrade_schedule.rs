@@ -61,7 +61,9 @@ pub(crate) fn get_protocol_version_internal(
 ) -> ProtocolVersion {
     if next_epoch_protocol_version >= client_protocol_version {
         client_protocol_version
-    } else if voting_start.is_in_future() {
+    } else if voting_start.is_in_future()
+        || !crate::version::DO_UPGRADE.load(std::sync::atomic::Ordering::Relaxed)
+    {
         // Don't announce support for the latest protocol version yet.
         next_epoch_protocol_version
     } else {

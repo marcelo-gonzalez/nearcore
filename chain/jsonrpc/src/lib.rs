@@ -17,7 +17,7 @@ use near_client::{
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered, ProcessTxRequest,
     ProcessTxResponse, Query, Status, TxStatus, ViewClientActor,
 };
-use near_client_primitives::types::GetSplitStorageInfo;
+use near_client_primitives::types::{DoProtocolUpgrade, GetSplitStorageInfo};
 pub use near_jsonrpc_client as client;
 use near_jsonrpc_primitives::errors::RpcError;
 use near_jsonrpc_primitives::message::{Message, Request};
@@ -306,6 +306,7 @@ impl JsonRpcHandler {
             "tx" => {
                 process_method_call(request, |params| self.tx_status_common(params, false)).await
             }
+            "do_upgrade" => process_method_call(request, |params| self.do_upgrade(params)).await,
             "validators" => process_method_call(request, |params| self.validators(params)).await,
             "client_config" => {
                 process_method_call(request, |_params: ()| self.client_config()).await
@@ -874,6 +875,14 @@ impl JsonRpcHandler {
     > {
         let tx_status = self.tx_status_fetch(request_data.transaction_info, fetch_receipt).await?;
         Ok(tx_status.rpc_into())
+    }
+
+    async fn do_upgrade(
+        &self,
+        request: crate::api::upgrade::DoUpgradeRequest,
+    ) -> Result<crate::api::upgrade::DoUpgradeResponse, crate::api::upgrade::DoUpgradeError> {
+        self.client_send(DoProtocolUpgrade { upgrade: request.upgrade }).await?;
+        Ok(crate::api::upgrade::DoUpgradeResponse(()))
     }
 
     async fn block(

@@ -983,6 +983,17 @@ impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
     }
 }
 
+pub struct DoProtocolUpgrade {
+    pub upgrade: bool,
+}
+
+#[derive(Debug)]
+pub struct DoProtocolUpgradeError(pub near_chain_primitives::Error);
+
+impl Message for DoProtocolUpgrade {
+    type Result = Result<(), DoProtocolUpgradeError>;
+}
+
 pub struct GetClientConfig {}
 
 impl Message for GetClientConfig {

@@ -196,6 +196,8 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     ProtocolUpgradeVotingSchedule::from_env_or_str("2023-05-15 15:00:00").unwrap()
 });
 
+pub static DO_UPGRADE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Gives new clients an option to upgrade without announcing that they support
 /// the new version.  This gives non-validator nodes time to upgrade.  See
 /// <https://github.com/near/NEPs/issues/205>
