@@ -193,7 +193,7 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // after the set date. Ideally that should be during working hours.
     // e.g. ProtocolUpgradeVotingSchedule::from_env_or_str("2000-01-01 15:00:00").unwrap());
 
-    ProtocolUpgradeVotingSchedule::from_env_or_str("2023-05-15 15:00:00").unwrap()
+    ProtocolUpgradeVotingSchedule::default()
 });
 
 pub static DO_UPGRADE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
