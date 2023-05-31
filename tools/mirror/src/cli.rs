@@ -1,4 +1,6 @@
 use anyhow::Context;
+use near_crypto::PublicKey;
+use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -13,6 +15,7 @@ pub struct MirrorCommand {
 enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
+    Key(KeyCmd),
 }
 
 /// initialize a target chain with genesis records from the source chain, and
@@ -128,6 +131,49 @@ impl PrepareCmd {
     }
 }
 
+#[derive(clap::Parser)]
+struct KeyCmd {
+    #[clap(long)]
+    public_key: Option<String>,
+    #[clap(long)]
+    account_id: Option<String>,
+    #[clap(long)]
+    extra: bool,
+}
+
+impl KeyCmd {
+    fn run(self) -> anyhow::Result<()> {
+        if let Some(public_key) = self.public_key {
+            let public_key: PublicKey = public_key.parse().context("bad key")?;
+            let new_key = crate::key_mapping::map_key(&public_key, None);
+
+            println!("{}\n--------------------", public_key);
+            println!("secret {}", &new_key);
+            println!("public {}", new_key.public_key());
+        }
+
+        if let Some(account_id) = self.account_id {
+            let account_id: AccountId = account_id.parse().context("bad account ID")?;
+            let public_key =
+                PublicKey::from_implicit_account(&account_id).context("account ID not implicit")?;
+            let new_key = crate::key_mapping::map_key(&public_key, None);
+            let new_account: String = hex::encode(new_key.public_key().key_data()).parse().unwrap();
+
+            println!("{}\n--------------------------", account_id);
+            println!("secret {}", &new_key);
+            println!("public {}", new_key.public_key());
+            println!("account ID {}", new_account);
+        }
+
+        if self.extra {
+            println!("extra\n------------------------");
+            println!("secret {}", &crate::key_mapping::EXTRA_KEY);
+            println!("public {}", &crate::key_mapping::EXTRA_KEY.public_key());
+        }
+        Ok(())
+    }
+}
+
 // copied from neard/src/cli.rs
 fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
     // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
@@ -148,6 +194,7 @@ impl MirrorCommand {
         match self.subcmd {
             SubCommand::Prepare(r) => r.run(),
             SubCommand::Run(r) => r.run(),
+            SubCommand::Key(r) => r.run(),
         }
     }
 }
