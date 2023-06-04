@@ -84,6 +84,7 @@ pub enum StateViewerSubCommand {
     /// Clear recoverable data in CachedContractCode column.
     #[clap(alias = "clear_cache")]
     ClearCache,
+    Peers(PeersCmd),
 }
 
 impl StateViewerSubCommand {
@@ -114,6 +115,7 @@ impl StateViewerSubCommand {
 
         match self {
             StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Peers(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
@@ -139,6 +141,18 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct PeersCmd {
+    #[clap(long)]
+    delete: bool,
+}
+
+impl PeersCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        peers_cmd(home_dir, near_config, store, self.delete).unwrap();
     }
 }
 
