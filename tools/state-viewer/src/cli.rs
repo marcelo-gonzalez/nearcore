@@ -90,6 +90,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    Peers(PeersCmd),
 }
 
 impl StateViewerSubCommand {
@@ -120,6 +121,7 @@ impl StateViewerSubCommand {
 
         match self {
             StateViewerSubCommand::Apply(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Peers(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyChunk(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyRange(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ApplyReceipt(cmd) => cmd.run(home_dir, near_config, store),
@@ -147,6 +149,18 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct PeersCmd {
+    #[clap(long)]
+    delete: bool,
+}
+
+impl PeersCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        peers_cmd(home_dir, near_config, store, self.delete).unwrap();
     }
 }
 
