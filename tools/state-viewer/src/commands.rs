@@ -7,6 +7,8 @@ use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use ansi_term::Color::Red;
+use anyhow::Context;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::RuntimeAdapter;
@@ -15,6 +17,7 @@ use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::EpochManagerHandle;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_network::types::PeerInfo;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
@@ -117,6 +120,58 @@ pub(crate) fn apply_block(
             .unwrap()
     };
     (block, apply_result)
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
+struct ConnectionInfoRepr {
+    peer_info: PeerInfo,
+    /// UNIX timestamps in nanos.
+    time_established: u64,
+    time_connected_until: u64,
+}
+
+pub(crate) fn peers_cmd(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    delete: bool,
+) -> anyhow::Result<()> {
+    println!("AccountAnnouncements:\n");
+    for res in store.iter(DBCol::AccountAnnouncements) {
+        let (k, v) = res.context("AnnounceAccount err")?;
+        println!("{}: {}", k.len(), v.len());
+    }
+    println!("RecentOutboundConnections:\n");
+    for res in store.iter(DBCol::RecentOutboundConnections) {
+        let (k, v) = res.context("RecentOutboundConnections err")?;
+        let c = Vec::<ConnectionInfoRepr>::try_from_slice(&v).unwrap();
+        println!("{}: {} {:?}", k.len(), c.len(), c);
+    }
+    println!("PeerComponent:\n");
+    for res in store.iter(DBCol::PeerComponent) {
+        let (k, v) = res.context("PeerComponent err")?;
+        println!("{}: {}", k.len(), v.len());
+    }
+    println!("ComponentEdges:\n");
+    for res in store.iter(DBCol::ComponentEdges) {
+        let (k, v) = res.context("ComponentEdges err")?;
+        println!("{}: {}", k.len(), v.len());
+    }
+    println!("LastComponentNonce:\n");
+    for res in store.iter(DBCol::LastComponentNonce) {
+        let (k, v) = res.context("LastComponentNonce err")?;
+        println!("{}: {}", k.len(), v.len());
+    }
+    if delete {
+        let mut update = store.store_update();
+        update.delete_all(DBCol::RecentOutboundConnections);
+        //update.delete_all(DBCol::AccountAnnouncements);
+        update.delete_all(DBCol::PeerComponent);
+        update.delete_all(DBCol::ComponentEdges);
+        update.delete_all(DBCol::LastComponentNonce);
+        update.commit().context("deleting from DB")?;
+    }
+    Ok(())
 }
 
 pub(crate) fn apply_block_at_height(
