@@ -3,6 +3,7 @@ use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::borsh::maybestd::sync::Arc;
 use near_primitives::hash::CryptoHash;
@@ -115,12 +116,12 @@ fn apply_block_from_range(
     store: Store,
     genesis: &Genesis,
     epoch_manager: &EpochManagerHandle,
+    shard_tracker: &ShardTracker,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     progress_reporter: &ProgressReporter,
     verbose_output: bool,
     csv_file_mutex: &Mutex<Option<&mut File>>,
     only_contracts: bool,
-    use_flat_storage: bool,
 ) {
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
@@ -146,6 +147,9 @@ fn apply_block_from_range(
     let block_author = epoch_manager
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
+
+    let cares_about_shard_this_epoch =
+        shard_tracker.care_about_shard(None, block.header().prev_hash(), shard_id, true);
 
     let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
         if verbose_output {
@@ -244,7 +248,7 @@ fn apply_block_from_range(
                 true,
                 is_first_block_with_chunk_of_version,
                 Default::default(),
-                use_flat_storage,
+                cares_about_shard_this_epoch,
             )
             .unwrap()
     } else {
@@ -271,7 +275,7 @@ fn apply_block_from_range(
                 false,
                 false,
                 Default::default(),
-                use_flat_storage,
+                cares_about_shard_this_epoch,
             )
             .unwrap()
     };
@@ -335,12 +339,12 @@ pub fn apply_chain_range(
     end_height: Option<BlockHeight>,
     shard_id: ShardId,
     epoch_manager: &EpochManagerHandle,
+    shard_tracker: &ShardTracker,
     runtime_adapter: Arc<NightshadeRuntime>,
     verbose_output: bool,
     csv_file: Option<&mut File>,
     only_contracts: bool,
     sequential: bool,
-    use_flat_storage: bool,
 ) {
     let parent_span = tracing::debug_span!(
         target: "state_viewer",
@@ -349,8 +353,7 @@ pub fn apply_chain_range(
         ?end_height,
         %shard_id,
         only_contracts,
-        sequential,
-        use_flat_storage)
+        sequential)
     .entered();
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
@@ -382,12 +385,12 @@ pub fn apply_chain_range(
             store.clone(),
             genesis,
             epoch_manager,
+            shard_tracker,
             runtime_adapter.clone(),
             &progress_reporter,
             verbose_output,
             &csv_file_mutex,
             only_contracts,
-            use_flat_storage,
         );
     };
 
@@ -455,10 +458,12 @@ mod test {
     use std::path::Path;
 
     use near_chain::{ChainGenesis, Provenance};
+    use near_chain_configs::ClientConfig;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
     use near_crypto::{InMemorySigner, KeyType};
+    use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
     use near_epoch_manager::EpochManager;
     use near_primitives::transaction::SignedTransaction;
     use near_primitives::types::{BlockHeight, BlockHeightDelta, NumBlocks};
@@ -545,6 +550,12 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, None);
 
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let shard_tracker = ShardTracker::new(
+            TrackedConfig::from_config(&ClientConfig::test(
+                true, 10, 20, 2, false, true, true, true,
+            )),
+            epoch_manager.clone(),
+        );
         let runtime =
             NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         apply_chain_range(
@@ -554,10 +565,10 @@ mod test {
             None,
             0,
             epoch_manager.as_ref(),
+            &shard_tracker,
             runtime,
             true,
             None,
-            false,
             false,
             false,
         );
@@ -582,6 +593,12 @@ mod test {
         safe_produce_blocks(&mut env, 1, epoch_length * 2 + 1, Some(5));
 
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let shard_tracker = ShardTracker::new(
+            TrackedConfig::from_config(&ClientConfig::test(
+                true, 10, 20, 2, false, true, true, true,
+            )),
+            epoch_manager.clone(),
+        );
         let runtime =
             NightshadeRuntime::test(Path::new("."), store.clone(), &genesis, epoch_manager.clone());
         let mut file = tempfile::NamedTempFile::new().unwrap();
@@ -592,10 +609,10 @@ mod test {
             None,
             0,
             epoch_manager.as_ref(),
+            &shard_tracker,
             runtime,
             true,
             Some(file.as_file_mut()),
-            false,
             false,
             false,
         );
