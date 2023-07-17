@@ -9,6 +9,7 @@ import ctypes
 import logging
 import multiprocessing
 import pathlib
+import random
 import requests
 import sys
 import threading
@@ -184,9 +185,13 @@ class NearNodeProxy:
 
     def __init__(self, environment):
         self.request_event = environment.events.request
-        url, port = environment.host.split(":")
-        self.node = cluster.RpcNode(url, port)
+        self.nodes = []
+        for url, port in environment.node_addrs:
+            self.nodes.append(cluster.RpcNode(url, port))
         self.session = requests.Session()
+
+    def random_node(self):
+        return random.choice(self.nodes)
 
     def send_tx_retry(self, tx: Transaction, locust_name) -> dict:
         """
@@ -219,7 +224,8 @@ class NearNodeProxy:
         """
         Send a transaction and return the result, no retry attempted.
         """
-        block_hash = base58.b58decode(self.node.get_latest_block().hash)
+        node = self.random_node()
+        block_hash = base58.b58decode(node.get_latest_block().hash)
         signed_tx = tx.sign_and_serialize(block_hash)
 
         meta = {
@@ -238,7 +244,7 @@ class NearNodeProxy:
             try:
                 # To get proper errors on invalid transaction, we need to use sync api first
                 result = self.post_json(
-                    "broadcast_tx_commit",
+                    node.rpc_addr(), "broadcast_tx_commit",
                     [base64.b64encode(signed_tx).decode('utf8')])
                 evaluate_rpc_result(result.json())
             except TxUnknownError as err:
@@ -246,7 +252,7 @@ class NearNodeProxy:
                 # In that case, the stateless transaction validation was
                 # successful, we can now use async API without missing errors.
                 submit_raw_response = self.post_json(
-                    "broadcast_tx_async",
+                    node.rpc_addr(), "broadcast_tx_async",
                     [base64.b64encode(signed_tx).decode('utf8')])
                 meta["response_length"] = len(submit_raw_response.text)
                 submit_response = submit_raw_response.json()
@@ -258,7 +264,7 @@ class NearNodeProxy:
                 else:
                     tx.transaction_id = submit_response["result"]
                     # using retrying lib here to poll until a response is ready
-                    self.poll_tx_result(meta, tx)
+                    self.poll_tx_result(meta, node.rpc_addr(), tx)
         except NearError as err:
             logging.warn(f"marking an error {err.message}, {err.details}")
             meta["exception"] = err
@@ -270,24 +276,35 @@ class NearNodeProxy:
         self.request_event.fire(**meta)
         return meta
 
-    def post_json(self, method: str, params: typing.List[str]):
+    def post_json(
+        self,
+        rpc_addr: typing.Tuple[str, str],
+        method: str,
+        params: typing.List[str],
+    ):
         j = {
             "method": method,
             "params": params,
             "id": "dontcare",
             "jsonrpc": "2.0"
         }
-        return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
-                                 json=j)
+        logger.debug(f'post {method} to {rpc_addr}')
+        return self.session.post(url="http://%s:%s" % rpc_addr, json=j)
 
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
            retry_on_exception=is_tx_unknown_error)
-    def poll_tx_result(self, meta: dict, tx: Transaction):
+    def poll_tx_result(
+        self,
+        meta: dict,
+        rpc_addr: typing.Tuple[str, str],
+        tx: Transaction,
+    ):
         params = [tx.transaction_id, tx.sender_account().key.account_id]
         # poll for tx result, using "EXPERIMENTAL_tx_status" which waits for
         # all receipts to finish rather than just the first one, as "tx" would do
-        result_response = self.post_json("EXPERIMENTAL_tx_status", params)
+        result_response = self.post_json(rpc_addr, "EXPERIMENTAL_tx_status",
+                                         params)
         # very verbose, but very useful to see what's happening when things are stuck
         logger.debug(
             f"polling, got: {result_response.status_code} {result_response.json()}"
@@ -301,7 +318,8 @@ class NearNodeProxy:
             raise
 
     def account_exists(self, account_id: str) -> bool:
-        return "error" not in self.node.get_account(account_id, do_assert=False)
+        return "error" not in self.random_node().get_account(account_id,
+                                                             do_assert=False)
 
     def prepare_account(self, account: Account, parent: Account, balance: int,
                         msg: str) -> bool:
@@ -312,7 +330,7 @@ class NearNodeProxy:
         if not exists:
             self.send_tx_retry(
                 CreateSubAccount(parent, account.key, balance=balance), msg)
-        account.refresh_nonce(self.node)
+        account.refresh_nonce(self.random_node())
         return exists
 
 
@@ -351,7 +369,7 @@ class NearUser(User):
                 CreateSubAccount(NearUser.funding_account,
                                  self.account.key,
                                  balance=NearUser.INIT_BALANCE))
-        self.account.refresh_nonce(self.node.node)
+        self.account.refresh_nonce(self.node.random_node())
 
     def send_tx(self, tx: Transaction, locust_name="generic send_tx"):
         """
@@ -552,6 +570,12 @@ def init_account_generator(parsed_options):
 
 # called once per process before user initialization
 def do_on_locust_init(environment):
+    if environment.parsed_options.rpc_nodes is None or environment.parsed_options.rpc_nodes == '':
+        environment.node_addrs = [environment.host.split(':')]
+    else:
+        environment.node_addrs = list(
+            map(lambda a: a.split(':'),
+                environment.parsed_options.rpc_nodes.split(',')))
     node = NearNodeProxy(environment)
 
     master_funding_key = key.Key.from_json_file(
@@ -562,7 +586,7 @@ def do_on_locust_init(environment):
         raise SystemExit(
             f"account {master_funding_account.key.account_id} of the provided master funding key does not exist"
         )
-    master_funding_account.refresh_nonce(node.node)
+    master_funding_account.refresh_nonce(node.random_node())
 
     environment.account_generator = init_account_generator(
         environment.parsed_options)
@@ -583,7 +607,7 @@ def do_on_locust_init(environment):
         worker_account_id = f"funds_worker_{worker_id}.{master_funding_account.key.account_id}"
         worker_key = key.Key.from_seed_testonly(worker_account_id)
         funding_account = Account(worker_key)
-        funding_account.refresh_nonce(node.node)
+        funding_account.refresh_nonce(node.random_node())
     elif isinstance(environment.runner, runners.LocalRunner):
         funding_account = master_funding_account
     else:
@@ -631,6 +655,12 @@ def _(parser):
         default="",
         help="Unique index to append to static account ids. "
         "Change between runs if you need a new state. Keep at default if you want to reuse the old state"
+    )
+    parser.add_argument(
+        "--rpc-nodes",
+        default="",
+        help="List of RPC nodes to send transactions to. "
+        "If this is not set, we default to the -H parameter, otherwise we use this set of nodes"
     )
 
 

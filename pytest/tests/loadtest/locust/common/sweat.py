@@ -136,7 +136,7 @@ def on_locust_init(environment, **kwargs):
     run_id = environment.parsed_options.run_id
 
     funding_account = NearUser.funding_account
-    funding_account.refresh_nonce(node.node)
+    funding_account.refresh_nonce(node.random_node())
     sweat_contract_code = environment.parsed_options.sweat_wasm
     sweat_account_id = f"sweat{run_id}.{environment.master_funding_account.key.account_id}"
     oracle_account_id = worker_oracle_id(worker_id, run_id,
