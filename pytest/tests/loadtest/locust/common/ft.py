@@ -124,7 +124,7 @@ def on_locust_init(environment, **kwargs):
     funding_account = NearUser.funding_account
     parent_id = funding_account.key.account_id
 
-    funding_account.refresh_nonce(node.node)
+    funding_account.refresh_nonce(node.random_node())
 
     environment.ft_contracts = []
     # TODO: Create accounts in parallel
