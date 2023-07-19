@@ -28,7 +28,7 @@ import transaction
 import utils
 
 DEFAULT_TRANSACTION_TTL = timedelta(minutes=30)
-logger = new_logger(level=logging.WARN)
+logger = new_logger(level=logging.DEBUG)
 
 
 def is_key_error(exception):
@@ -277,8 +277,12 @@ class NearNodeProxy:
             "id": "dontcare",
             "jsonrpc": "2.0"
         }
-        return self.session.post(url="http://%s:%s" % self.node.rpc_addr(),
-                                 json=j)
+        start = time.time()
+        rpc_addr = self.node.rpc_addr()
+        logger.debug(f'asdf post {method} to {rpc_addr}')
+        res = self.session.post(url="http://%s:%s" % rpc_addr, json=j)
+        logger.debug(f'asdf posted {method} to {rpc_addr} in {time.time()-start}')
+        return res
 
     @retry(wait_fixed=500,
            stop_max_delay=DEFAULT_TRANSACTION_TTL / timedelta(milliseconds=1),
