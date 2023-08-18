@@ -528,7 +528,8 @@ impl Signature {
     /// Verifies that this signature is indeed signs the data with given public key.
     /// Also if public key doesn't match on the curve returns `false`.
     pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {
-        match (&self, public_key) {
+        let start = std::time::Instant::now();
+        let ret = match (&self, public_key) {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {
                 match ed25519_dalek::PublicKey::from_bytes(&public_key.0) {
                     Err(_) => false,
@@ -557,7 +558,9 @@ impl Signature {
                     .is_ok()
             }
             _ => false,
-        }
+        };
+        tracing::info!("asdfasdf {:?}", start.elapsed());
+        ret
     }
 
     pub fn key_type(&self) -> KeyType {

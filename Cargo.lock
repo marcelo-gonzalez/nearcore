@@ -3675,6 +3675,7 @@ dependencies = [
  "subtle",
  "tempfile",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
