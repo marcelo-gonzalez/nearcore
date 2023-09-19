@@ -60,6 +60,7 @@ pub enum StateViewerSubCommand {
     /// Generate a genesis file from the current state of the DB.
     #[clap(alias = "dump_state")]
     DumpState(DumpStateCmd),
+    ValidatorStake(ValidatorStakeCmd),
     /// Writes state to a remote redis server.
     #[clap(alias = "dump_state_redis")]
     DumpStateRedis(DumpStateRedisCmd),
@@ -139,6 +140,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::DumpAccountStorage(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpCode(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpState(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ValidatorStake(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpStateRedis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::DumpTx(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
@@ -357,6 +359,26 @@ pub struct DumpStateCmd {
     /// Their stake will be returned to balance.
     #[clap(long)]
     include_validators: Option<Vec<AccountId>>,
+}
+
+#[derive(clap::Parser)]
+pub struct ValidatorStakeCmd {
+    #[clap(long)]
+    height: BlockHeight,
+    #[clap(long)]
+    account_id: String,
+}
+
+impl ValidatorStakeCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        validator_stakes(
+            self.height,
+            self.account_id.parse().unwrap(),
+            home_dir,
+            near_config,
+            store,
+        )
+    }
 }
 
 impl DumpStateCmd {

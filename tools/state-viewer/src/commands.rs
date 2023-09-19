@@ -18,12 +18,14 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
+use near_primitives_core::account::Account;
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
@@ -339,6 +341,55 @@ pub(crate) fn dump_code(
         "Account {} does not exist or do not have contract deployed in all shards",
         account_id
     );
+}
+
+pub(crate) fn validator_stakes(
+    height: BlockHeight,
+    account_id: AccountId,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) {
+    let (epoch_manager, runtime, state_roots, header) = load_trie_stop_at_height(
+        store,
+        home_dir,
+        &near_config,
+        LoadTrieMode::LastFinalFromHeight(height),
+    );
+    let block_producers =
+        epoch_manager.get_epoch_block_producers_ordered(header.epoch_id(), header.hash()).unwrap();
+    let validators = block_producers
+        .into_iter()
+        .filter_map(|(info, is_slashed)| {
+            if !is_slashed {
+                let (account_id, public_key, stake) = info.destructure();
+                Some((account_id, (public_key, stake)))
+            } else {
+                None
+            }
+        })
+        .collect::<HashMap<_, _>>();
+    let shard_layout = epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
+    let shard_id = account_id_to_shard_id(&account_id, &shard_layout);
+    println!("shard {}", shard_id);
+    let trie = runtime
+        .get_trie_for_shard(shard_id, header.prev_hash(), state_roots[shard_id as usize], false)
+        .unwrap();
+    use borsh::BorshDeserialize;
+    use near_store::TrieAccess;
+    let account =
+        TrieAccess::get(&trie, &TrieKey::Account { account_id: account_id.clone() }).unwrap();
+    match account {
+        None => panic!("no account"),
+        Some(v) => {
+            let account = Account::try_from_slice(&v).unwrap();
+            println!("{:?}", &account);
+            match validators.get(&account_id) {
+                Some((_key, stake)) => println!("stake {}", stake),
+                None => println!("no stake"),
+            };
+        }
+    }
 }
 
 pub(crate) fn dump_state(
