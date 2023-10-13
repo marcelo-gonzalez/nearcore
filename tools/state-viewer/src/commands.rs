@@ -793,6 +793,9 @@ pub(crate) fn view_chain(
     for (shard_id, chunk_extra) in chunk_extras {
         println!("shard {}, chunk extra: {:#?}", shard_id, chunk_extra);
     }
+    let shard_uid = ShardUId::from_shard_id_and_layout(0, &shard_layout);
+    let c = chain_store.get_chunk_extra(block.hash(), &shard_uid);
+    println!("yo chunk extra {:?}", c);
     if view_block {
         println!("last block: {:#?}", block);
     }
