@@ -731,6 +731,36 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     }
 }
 
+pub(crate) fn block_times(
+    home_dir: &Path, near_config: NearConfig, store: Store,
+    num_blocks: usize,
+) {
+    let chain_store = ChainStore::new(
+        store.clone(),
+        near_config.genesis.config.genesis_height,
+        near_config.client_config.save_trie_changes,
+    );
+    let head = chain_store.head().unwrap();
+    let mut header = chain_store.get_block_header(&head.last_block_hash).unwrap();
+    let mut old_timestamp = header.timestamp();
+    let mut old_height = header.height();
+    println!("head #{}: {}", header.height(), &old_timestamp);
+    for _ in 0..num_blocks {
+        header = match chain_store.get_block_header(header.prev_hash()) {
+            Ok(h) => h,
+            Err(Error::DBNotFoundErr(_)) => break,
+            Err(e) => {
+                panic!("bad {:?}", e);
+            }
+        };
+        let t = header.timestamp();
+        let height = header.height();
+        println!("{} -> {}: {}", height, old_height, old_timestamp - t);
+        old_timestamp = t;
+        old_height = height;
+    }
+}
+
 pub(crate) fn view_chain(
     height: Option<BlockHeight>,
     view_block: bool,

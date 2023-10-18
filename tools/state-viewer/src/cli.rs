@@ -90,6 +90,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    BlockTimes(BlockTimesCmd),
 }
 
 impl StateViewerSubCommand {
@@ -146,6 +147,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::BlockTimes(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -565,6 +567,18 @@ impl ScanDbColumnCmd {
             (None, None, Some(hash)) => Some(hash.try_to_vec().unwrap()),
             _ => panic!("Need to provide exactly one of bytes, str, or hash"),
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct BlockTimesCmd {
+    #[clap(long)]
+    num_blocks: usize,
+}
+
+impl BlockTimesCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        block_times(home_dir, near_config, store, self.num_blocks);
     }
 }
 
