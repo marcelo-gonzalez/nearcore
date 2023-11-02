@@ -235,6 +235,7 @@ pub(crate) struct NearVM {
 
 impl NearVM {
     pub(crate) fn new_for_target(config: Config, target: near_vm_compiler::Target) -> Self {
+        println!("NearVM::new()");
         // We only support singlepass compiler at the moment.
         assert_eq!(VM_CONFIG.compiler, NearVmCompiler::Singlepass);
         let mut compiler = Singlepass::new();
