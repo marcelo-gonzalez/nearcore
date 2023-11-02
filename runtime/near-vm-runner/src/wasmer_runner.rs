@@ -239,6 +239,7 @@ pub(crate) struct Wasmer0VM {
 
 impl Wasmer0VM {
     pub(crate) fn new(config: VMConfig) -> Self {
+        println!("Wasmer0VM::new()");
         Self { config }
     }
 

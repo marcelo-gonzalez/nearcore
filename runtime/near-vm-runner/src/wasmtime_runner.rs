@@ -141,6 +141,7 @@ pub(crate) struct WasmtimeVM {
 
 impl WasmtimeVM {
     pub(crate) fn new(config: VMConfig) -> Self {
+        println!("WasmtimeVM::new()");
         Self { config }
     }
 

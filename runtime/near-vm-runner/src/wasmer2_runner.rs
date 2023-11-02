@@ -240,6 +240,7 @@ pub(crate) struct Wasmer2VM {
 
 impl Wasmer2VM {
     pub(crate) fn new_for_target(config: VMConfig, target: wasmer_compiler::Target) -> Self {
+        println!("Wasmer2VM::new()");
         // We only support singlepass compiler at the moment.
         assert_eq!(WASMER2_CONFIG.compiler, WasmerCompiler::Singlepass);
         let compiler = Singlepass::new();
