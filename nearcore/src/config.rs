@@ -464,8 +464,8 @@ impl Config {
                 }
             },
         )
-        .map_err(|_| ValidationError::ConfigFileError {
-            error_message: format!("Failed to deserialize config from {}", path.display()),
+        .map_err(|e| ValidationError::ConfigFileError {
+            error_message: format!("Failed to deserialize config from {}: {:?}", path.display(), e),
         })?;
 
         if !unrecognised_fields.is_empty() {
