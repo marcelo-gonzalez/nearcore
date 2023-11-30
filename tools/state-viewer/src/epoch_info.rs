@@ -48,10 +48,18 @@ pub(crate) fn print_epoch_info(
         .iter()
         .map(|epoch_id| (epoch_id.clone(), epoch_manager.get_epoch_info(epoch_id).unwrap()))
         .collect();
+    let mut configs = std::collections::HashMap::new();
+    for (epoch_id, _info) in epoch_infos.iter() {
+        let config = epoch_manager.get_epoch_config(epoch_id).unwrap();
+        configs.insert(epoch_id.clone(), config);
+    }
     // Sorted output is much easier to follow.
     epoch_infos.sort_by_key(|(_, epoch_info)| epoch_info.epoch_height());
 
     for (epoch_id, epoch_info) in &epoch_infos {
+        let config = configs.get(epoch_id).unwrap();
+        println!("-------------------------");
+        println!("{:?}", config);
         println!("-------------------------");
         println!("EpochId: {:?}, EpochHeight: {}", epoch_id, epoch_info.epoch_height());
         if kickouts_summary {
