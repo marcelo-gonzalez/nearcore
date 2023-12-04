@@ -23,6 +23,8 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
+use near_primitives::transaction::Action;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
@@ -804,6 +806,106 @@ pub(crate) fn view_chain(
             println!("shard {}, chunk: {:#?}", shard_id, chunk);
         }
     }
+}
+
+fn tx_actions(tx: &SignedTransaction) -> String {
+    let mut ret = String::new();
+    ret += &format!("{}: actions: <", tx.get_hash());
+    for action in tx.transaction.actions.iter() {
+        match action {
+            Action::CreateAccount(_) => ret += "CreateAccount",
+            Action::DeployContract(_) => ret += "DeployContract",
+            Action::FunctionCall(_) => ret += "FunctionCall",
+            Action::Transfer(_) => ret += "Transfer",
+            Action::Stake(_) => ret += "Stake",
+            Action::AddKey(_) => ret += "AddKey",
+            Action::DeleteKey(_) => ret += "DeleteKey",
+            Action::DeleteAccount(_) => ret += "DeleteAccount",
+            Action::Delegate(_) => ret += "Delegate",
+        }
+    }
+    ret += ">";
+    ret
+}
+
+fn gas_pretty(gas: Gas) -> String {
+    if gas < 1000 {
+        format!("{} Gas", gas)
+    } else if gas < 1_000_000 {
+        format!("{} kGas", gas / 1000)
+    } else if gas < 1_000_000_000 {
+        format!("{} mGas", gas / 1_000_000)
+    } else if gas < 1_000_000_000_000 {
+        format!("{} gGas", gas / 1_000_000_000)
+    } else {
+        format!("{} tGas", gas / 1_000_000_000_000)
+    }
+}
+
+pub(crate) fn txs(
+    start: u64,
+    end: u64,
+    near_config: NearConfig,
+    store: Store,
+    count_only: bool,
+) -> anyhow::Result<()> {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let chain_store =
+        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
+
+    let mut total = 0;
+    for height in start..end {
+        let hash = match chain_store.get_block_hash_by_height(height) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+        let block = match chain_store.get_block(&hash) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("cant get block {} {:?}", &hash, e);
+                continue;
+            }
+        };
+        println!("--- height {} ---", height);
+        let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();
+        for (shard_id, c) in chunk_hashes.iter().enumerate() {
+            let chunk = match chain_store.get_chunk(&c) {
+                Ok(chunk) => chunk,
+                Err(_) => continue,
+            };
+            let included = if chunk.height_included() != height {
+                format!(" (included #{})", chunk.height_included())
+            } else {
+                String::new()
+            };
+            if count_only {
+                println!(
+                    "shard {}{}: {}: {} txs, {} receipts",
+                    shard_id,
+                    included,
+                    gas_pretty(chunk.cloned_header().gas_used()),
+                    chunk.transactions().len(),
+                    chunk.receipts().len()
+                );
+            } else {
+                if chunk.transactions().is_empty() && chunk.receipts().is_empty() {
+                    println!("shard {} empty", shard_id);
+                    continue;
+                }
+                println!("shard {} {}", shard_id, gas_pretty(chunk.cloned_header().gas_used()));
+                for tx in chunk.transactions() {
+                    println!("{}", tx_actions(tx));
+                }
+                for r in chunk.receipts() {
+                    println!("receipt {}", r.get_hash());
+                }
+                println!("---------");
+            }
+            total += chunk.transactions().len();
+        }
+    }
+    println!("total: {}", total);
+    Ok(())
 }
 
 pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {
