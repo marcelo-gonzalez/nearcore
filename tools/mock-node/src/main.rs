@@ -69,7 +69,7 @@ struct Cli {
     #[clap(long)]
     network_height: Option<BlockHeight>,
     /// Shortcut to set both `--client-height` and `--network-height`.
-    #[clap(long, conflicts_with_all(&["client-height", "network-height"]))]
+    #[clap(long, conflicts_with_all(&["client_height", "network_height"]))]
     start_height: Option<BlockHeight>,
     /// Target height that the client should sync to before stopping. If not specified,
     /// use the height of the last block in chain history
