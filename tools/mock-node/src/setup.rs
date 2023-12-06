@@ -20,6 +20,7 @@ use near_store::test_utils::create_test_store;
 use nearcore::{NearConfig, NightshadeRuntime};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cmp::min;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -46,20 +47,39 @@ fn setup_runtime(
 
 fn setup_mock_peer(
     chain: Chain,
-    config: &NearConfig,
+    config: NearConfig,
     network_start_height: Option<BlockHeight>,
     network_config: MockNetworkConfig,
     target_height: BlockHeight,
     num_shards: ShardId,
-    mock_listen_addr: tcp::ListenerAddr,
-) -> (tokio::task::JoinHandle<anyhow::Result<()>>, PeerInfo) {
+    port: Option<u16>,
+    generate_mock_node_key: bool,
+) -> anyhow::Result<(tokio::task::JoinHandle<anyhow::Result<()>>, PeerInfo)> {
     let network_start_height = match network_start_height {
         None => target_height,
         Some(0) => chain.genesis_block().header().height(),
         Some(it) => it,
     };
-    let secret_key = SecretKey::from_random(KeyType::ED25519);
-    let chain_id = config.genesis.config.chain_id.clone();
+    let secret_key = if generate_mock_node_key {
+        SecretKey::from_random(KeyType::ED25519)
+    } else {
+        config.network_config.node_key
+    };
+    let mock_listen_addr = match port {
+        Some(port) => {
+            tcp::ListenerAddr::new(SocketAddr::new(
+                "127.0.0.1".parse().unwrap(),
+                port,
+            ))
+        }
+        None => {
+            match config.network_config.node_addr {
+                Some(addr) => addr,
+                None => anyhow::bail!("no network.addr is specified in the mock node's config, and --mock-port was not given"),
+            }
+        }
+    };
+    let chain_id = config.genesis.config.chain_id;
     let block_production_delay = config.client_config.min_block_production_delay;
     let archival = config.client_config.archive;
     let peer_info = PeerInfo::new(PeerId::new(secret_key.public_key()), *mock_listen_addr);
@@ -78,7 +98,7 @@ fn setup_mock_peer(
         .await?;
         mock.run(target_height).await
     });
-    (mock_peer, peer_info)
+    Ok((mock_peer, peer_info))
 }
 
 fn setup_and_run_neard(
@@ -229,7 +249,7 @@ fn setup_and_run_neard(
     Ok(rpc_client)
 }
 
-pub struct MockNode {
+pub struct MockedNeard {
     // target height actually available to sync to in the chain history database
     pub target_height: BlockHeight,
     pub mock_peer: tokio::task::JoinHandle<anyhow::Result<()>>,
@@ -237,44 +257,35 @@ pub struct MockNode {
     pub rpc_client: JsonRpcClient,
 }
 
-/// Setup up a mock node, including setting up
-/// a MockPeerManagerActor and a ClientActor and a ViewClientActor
-/// `client_home_dir`: home dir for the new client
-/// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
-///                     to construct `MockPeerManagerActor`
-/// `config`: config for the new client
-/// `network_delay`: delay for getting response from the simulated network
-/// `client_start_height`: start height for client
-/// `network_start_height`: height at which the simulated network starts producing blocks
-/// `target_height`: height that the simulated peers will produce blocks until. If None, will
-///                  use the height from the chain head in storage
-/// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
-///
-/// Returns a struct representing the node under test
-pub fn setup_mock_node(
-    client_home_dir: &Path,
+struct MockSetup {
+    mock_peer: tokio::task::JoinHandle<anyhow::Result<()>>,
+    mock_peer_info: PeerInfo,
+    target_height: BlockHeight,
+    mock_runtime: Arc<NightshadeRuntime>,
+    mock_epoch_manager: Arc<EpochManagerHandle>,
+}
+
+fn start_mock_node(
     network_home_dir: &Path,
     network_config: &MockNetworkConfig,
-    client_start_height: BlockHeight,
     network_start_height: Option<BlockHeight>,
     target_height: Option<BlockHeight>,
-    in_memory_storage: bool,
-    mock_listen_addr: tcp::ListenerAddr,
-) -> MockNode {
+    port: Option<u16>,
+    generate_mock_node_key: bool,
+) -> anyhow::Result<MockSetup> {
     let config = nearcore::config::load_config(network_home_dir, GenesisValidationMode::Full)
-        .context("Error loading config")
-        .unwrap();
+        .context("Error loading config")?;
 
-    let (mock_network_epoch_manager, mock_network_shard_tracker, mock_network_runtime) =
+    let (mock_epoch_manager, mock_network_shard_tracker, mock_runtime) =
         setup_runtime(network_home_dir, &config, false);
     tracing::info!(target: "mock_node", ?network_home_dir, "Setup network runtime");
 
     let chain_genesis = ChainGenesis::new(&config.genesis);
 
     let chain = Chain::new_for_view_client(
-        mock_network_epoch_manager.clone(),
+        mock_epoch_manager.clone(),
         mock_network_shard_tracker,
-        mock_network_runtime.clone(),
+        mock_runtime.clone(),
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         config.client_config.save_trie_changes,
@@ -282,33 +293,100 @@ pub fn setup_mock_node(
     .unwrap();
     let head = chain.head().unwrap();
     let target_height = min(target_height.unwrap_or(head.height), head.height);
-    let num_shards = mock_network_epoch_manager.num_shards(&head.epoch_id).unwrap();
+    let num_shards = mock_epoch_manager.num_shards(&head.epoch_id).unwrap();
 
     let (mock_peer, mock_peer_info) = setup_mock_peer(
         chain,
-        &config,
+        config,
         network_start_height,
         network_config.clone(),
         target_height,
         num_shards,
-        mock_listen_addr,
-    );
+        port,
+        generate_mock_node_key,
+    )?;
+    Ok(MockSetup { mock_peer, mock_peer_info, target_height, mock_runtime, mock_epoch_manager })
+}
+
+/// Setup up a mock node and start a neard node connected to it
+/// `client_home_dir`: home dir for the new client
+/// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
+///                     to construct `MockPeerManagerActor`
+/// `network_config`: mock node config
+/// `client_start_height`: start height for client
+/// `network_start_height`: height at which the simulated network starts producing blocks
+/// `target_height`: height that the simulated peers will produce blocks until. If None, will
+///                  use the height from the chain head in storage
+/// `in_memory_storage`: if true, make client use in memory storage instead of rocksdb
+/// `port`: port the mock node should listen on
+/// `generate_mock_node_key`: tells whether we should generate a new node key for the mock node
+///
+/// Returns a struct representing the node under test
+pub fn setup_mock_node_and_neard(
+    client_home_dir: &Path,
+    network_home_dir: &Path,
+    network_config: &MockNetworkConfig,
+    client_start_height: BlockHeight,
+    network_start_height: Option<BlockHeight>,
+    target_height: Option<BlockHeight>,
+    in_memory_storage: bool,
+    port: Option<u16>,
+    generate_mock_node_key: bool,
+) -> anyhow::Result<MockedNeard> {
+    let MockSetup { mock_peer, mock_peer_info, target_height, mock_runtime, mock_epoch_manager } =
+        start_mock_node(
+            network_home_dir,
+            network_config,
+            network_start_height,
+            target_height,
+            port,
+            generate_mock_node_key,
+        )?;
     let rpc_client = setup_and_run_neard(
         client_home_dir,
         client_start_height,
         in_memory_storage,
-        mock_network_runtime.as_ref(),
-        mock_network_epoch_manager.as_ref(),
+        mock_runtime.as_ref(),
+        mock_epoch_manager.as_ref(),
         mock_peer_info,
-    )
-    .unwrap();
+    )?;
 
-    MockNode { target_height, mock_peer, rpc_client }
+    Ok(MockedNeard { target_height, mock_peer, rpc_client })
+}
+
+/// Setup up a mock node
+/// `network_home_dir`: home dir that contains the pre-generated chain history, will be used
+///                     to construct `MockPeerManagerActor`
+/// `network_config`: mock node config
+/// `network_start_height`: height at which the simulated network starts producing blocks
+/// `target_height`: height that the simulated peers will produce blocks until. If None, will
+///                  use the height from the chain head in storage
+/// `port`: port the mock node should listen on
+/// `generate_mock_node_key`: tells whether we should generate a new node key for the mock node
+///
+/// Returns a JoinHandle for the spawned mock node task
+pub fn setup_mock_node(
+    network_home_dir: &Path,
+    network_config: &MockNetworkConfig,
+    network_start_height: Option<BlockHeight>,
+    target_height: Option<BlockHeight>,
+    port: Option<u16>,
+    generate_mock_node_key: bool,
+) -> anyhow::Result<tokio::task::JoinHandle<anyhow::Result<()>>> {
+    let MockSetup { mock_peer, .. } = start_mock_node(
+        network_home_dir,
+        network_config,
+        network_start_height,
+        target_height,
+        port,
+        generate_mock_node_key,
+    )?;
+    Ok(mock_peer)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::setup::{setup_mock_node, MockNode};
+    use crate::setup::{setup_mock_node, MockedNeard};
     use crate::MockNetworkConfig;
     use actix::{Actor, System};
     use futures::{future, FutureExt};
@@ -459,7 +537,7 @@ mod tests {
         };
 
         run_actix(async {
-            let MockNode { rpc_client, .. } = setup_mock_node(
+            let MockedNeard { rpc_client, .. } = setup_mock_node(
                 dir1.path(),
                 dir.path(),
                 near_config1,

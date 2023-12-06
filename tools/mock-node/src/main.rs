@@ -5,14 +5,12 @@
 
 use actix::System;
 use anyhow::Context;
-use mock_node::setup::{setup_mock_node, MockNode};
+use mock_node::setup::{setup_mock_node, setup_mock_node_and_neard, MockedNeard};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
 use near_jsonrpc_client::JsonRpcClient;
-use near_network::tcp;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::BlockHeight;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -52,6 +50,7 @@ struct Cli {
     chain_history_home_dir: String,
     /// Home dir for the new client that will be started. If not specified, the binary will
     /// generate a temporary directory
+    #[clap(long)]
     client_home_dir: Option<PathBuf>,
     /// Simulated network delay (in ms)
     #[clap(short = 'd', long)]
@@ -81,6 +80,10 @@ struct Cli {
     /// port the mock node should listen on
     #[clap(long)]
     mock_port: Option<u16>,
+    #[clap(long)]
+    run_neard_node: bool,
+    #[clap(long)]
+    generate_mock_node_key: bool,
 }
 
 async fn target_height_reached(client: &JsonRpcClient, target_height: BlockHeight) -> bool {
@@ -99,9 +102,56 @@ async fn target_height_reached(client: &JsonRpcClient, target_height: BlockHeigh
     }
 }
 
+async fn monitor_neard_status(mut mock: MockedNeard) {
+    // TODO: would be nice to be able to somehow quit right after the target block
+    // is applied rather than polling like this
+    let mut interval = tokio::time::interval(Duration::from_millis(500));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let start = Instant::now();
+    // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
+    let timeout = mock.target_height * 5;
+    let timeout = u32::try_from(timeout).unwrap_or(u32::MAX) * Duration::from_secs(1);
+
+    loop {
+        if start.elapsed() > timeout {
+            tracing::error!(
+                "node still hasn't made it to #{} after {:?}",
+                mock.target_height,
+                timeout
+            );
+            mock.mock_peer.abort();
+            break;
+        }
+        tokio::select! {
+            _ = interval.tick() => {
+                if target_height_reached(&mock.rpc_client, mock.target_height).await {
+                    tracing::info!("node reached target height");
+                    mock.mock_peer.abort();
+                    break;
+                }
+            }
+            result = &mut mock.mock_peer => {
+                match result {
+                    Ok(Ok(_)) => tracing::info!("mock peer exited"),
+                    Ok(Err(e)) => tracing::error!("mock peer exited with error: {:?}", e),
+                    Err(e) => tracing::error!("failed running mock peer task: {:?}", e),
+                };
+                break;
+            }
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     init_integration_logger();
     let args: Cli = clap::Parser::parse();
+
+    if !args.run_neard_node && (args.client_home_dir.is_some() || args.client_height > 0) {
+        anyhow::bail!(
+            "setting <client_home_dir> or --client-height requires --run-neard-node to be set"
+        );
+    }
     let home_dir = Path::new(&args.chain_history_home_dir);
     let tempdir;
     let client_home_dir = match &args.client_home_dir {
@@ -126,58 +176,47 @@ fn main() -> anyhow::Result<()> {
 
     let client_height = args.start_height.unwrap_or(args.client_height);
     let network_height = args.start_height.or(args.network_height);
-    let addr = tcp::ListenerAddr::new(SocketAddr::new(
-        "127.0.0.1".parse().unwrap(),
-        args.mock_port.unwrap_or(24566),
-    ));
 
     run_actix(async move {
-        let MockNode { target_height, mut mock_peer, rpc_client } = setup_mock_node(
-            Path::new(&client_home_dir),
-            home_dir,
-            &network_config,
-            client_height,
-            network_height,
-            args.target_height,
-            args.in_memory_storage,
-            addr,
-        );
-
-        // TODO: would be nice to be able to somehow quit right after the target block
-        // is applied rather than polling like this
-        let mut interval = tokio::time::interval(Duration::from_millis(100));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        let start = Instant::now();
-        // Let's set the timeout to 5 seconds per block - just in case we test on very full blocks.
-        let timeout = target_height * 5;
-        let timeout = u32::try_from(timeout).unwrap_or(u32::MAX) * Duration::from_secs(1);
-
-        loop {
-            if start.elapsed() > timeout {
-                tracing::error!(
-                    "node still hasn't made it to #{} after {:?}",
-                    target_height,
-                    timeout
-                );
-                mock_peer.abort();
-                break;
-            }
-            tokio::select! {
-                _ = interval.tick() => {
-                    if target_height_reached(&rpc_client, target_height).await {
-                        tracing::info!("node reached target height");
-                        mock_peer.abort();
-                        break;
-                    }
+        if args.run_neard_node {
+            match setup_mock_node_and_neard(
+                Path::new(&client_home_dir),
+                home_dir,
+                &network_config,
+                client_height,
+                network_height,
+                args.target_height,
+                args.in_memory_storage,
+                args.mock_port,
+                args.generate_mock_node_key,
+            ) {
+                Ok(mock) => {
+                    monitor_neard_status(mock).await;
                 }
-                result = &mut mock_peer => {
-                    match result {
-                        Ok(Ok(_)) => tracing::info!("mock peer exited"),
+                Err(e) => {
+                    tracing::error!("could not setup mock node: {:?}", e);
+                    return;
+                }
+            }
+        } else {
+            match setup_mock_node(
+                home_dir,
+                &network_config,
+                network_height,
+                args.target_height,
+                args.mock_port,
+                args.generate_mock_node_key,
+            ) {
+                Ok(mock) => {
+                    match mock.await {
+                        Ok(Ok(_)) => (),
                         Ok(Err(e)) => tracing::error!("mock peer exited with error: {:?}", e),
                         Err(e) => tracing::error!("failed running mock peer task: {:?}", e),
                     };
-                    break;
+                }
+                Err(e) => {
+                    tracing::error!("could not setup mock node: {:?}", e);
+                    return;
                 }
             }
         }
