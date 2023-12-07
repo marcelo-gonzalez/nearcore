@@ -279,7 +279,7 @@ impl Future for InFlightMessages {
 struct MockPeer {
     listener: Listener,
     chain: Chain,
-    current_height: BlockHeight,
+    start_height: BlockHeight,
     network_config: MockNetworkConfig,
     block_production: tokio::time::Interval,
     incoming_requests: IncomingRequests,
@@ -314,14 +314,14 @@ impl MockPeer {
         // to give the first block immediately. Otherwise the node won't even try asking us for block headers
         // until we give it a block.
         let tail = chain.tail().context("failed getting chain tail")?;
-        let mut current_height = None;
+        let mut start_height = None;
         for height in (tail..=network_start_height).rev() {
             if chain.get_block_by_height(height).is_ok() {
-                current_height = Some(height);
+                start_height = Some(height);
                 break;
             }
         }
-        let current_height = match current_height {
+        let start_height = match start_height {
             Some(h) => h,
             None => anyhow::bail!(
                 "No block found between tail {} and network start height {}",
@@ -332,7 +332,7 @@ impl MockPeer {
         Ok(Self {
             listener,
             chain,
-            current_height,
+            start_height,
             network_config,
             block_production: tokio::time::interval(block_production_delay),
             incoming_requests,
@@ -342,6 +342,7 @@ impl MockPeer {
     fn handle_message(
         &self,
         message: Message,
+        current_height: BlockHeight,
         outbound: Pin<&mut InFlightMessages>,
     ) -> anyhow::Result<()> {
         tracing::debug!("mock peer received message: {}", &message);
@@ -351,12 +352,9 @@ impl MockPeer {
                     DirectMessage::BlockHeadersRequest(hashes) => {
                         let headers = self
                             .chain
-                            .retrieve_headers(hashes, MAX_BLOCK_HEADERS, Some(self.current_height))
+                            .retrieve_headers(hashes, MAX_BLOCK_HEADERS, Some(current_height))
                             .with_context(|| {
-                                format!(
-                                    "failed retrieving block headers up to {}",
-                                    self.current_height
-                                )
+                                format!("failed retrieving block headers up to {}", current_height)
                             })?;
                         outbound
                             .queue_message(Message::Direct(DirectMessage::BlockHeaders(headers)));
@@ -396,9 +394,9 @@ impl MockPeer {
 
     // simulate the normal block production of the network by sending out a
     // "new" block at an interval set by the config's block_production_delay field
-    fn produce_block(&mut self) -> anyhow::Result<Option<Block>> {
-        let height = self.current_height;
-        self.current_height += 1;
+    fn produce_block(&mut self, current_height: &mut BlockHeight) -> anyhow::Result<Option<Block>> {
+        let height = *current_height;
+        *current_height += 1;
         match self.chain.get_block_by_height(height) {
             Ok(b) => Ok(Some(b)),
             Err(near_chain::Error::DBNotFoundErr(_)) => Ok(None),
@@ -409,14 +407,18 @@ impl MockPeer {
     // returns a message produced by this mock peer. Right now this includes a new block
     // at a rate given by block_production_delay in the config, and extra chunk part requests
     // and blocks as specified by the mock.json config
-    async fn incoming_message(&mut self, target_height: BlockHeight) -> anyhow::Result<Message> {
+    async fn incoming_message(
+        &mut self,
+        current_height: &mut BlockHeight,
+        target_height: BlockHeight,
+    ) -> anyhow::Result<Message> {
         loop {
             tokio::select! {
                 msg = self.incoming_requests.next() => {
                     return Ok(msg);
                 }
-                _ = self.block_production.tick(), if self.current_height <= target_height => {
-                    if let Some(block) = self.produce_block()? {
+                _ = self.block_production.tick(), if *current_height <= target_height => {
+                    if let Some(block) = self.produce_block(current_height)? {
                         return Ok(Message::Direct(DirectMessage::Block(block)));
                     }
                 }
@@ -426,17 +428,18 @@ impl MockPeer {
 
     // listen on the addr passed to MockPeer::new() and wait til someone connects.
     // Then respond to messages indefinitely until an error occurs
-    async fn run(mut self, target_height: BlockHeight) -> anyhow::Result<()> {
+    async fn accept_and_serve(&mut self, target_height: BlockHeight) -> anyhow::Result<()> {
         let mut conn = self.listener.accept().await?;
         let messages = InFlightMessages::new(self.network_config.response_delay);
         tokio::pin!(messages);
+        let mut current_height = self.start_height;
 
         loop {
             tokio::select! {
                 res = conn.recv() => {
                     let (msg, _timestamp) = res.with_context(|| format!("failed receiving message from {:?}", &conn))?;
 
-                    self.handle_message(msg, messages.as_mut())?;
+                    self.handle_message(msg, current_height, messages.as_mut())?;
                 }
                 msg = &mut messages => {
                     tracing::debug!("mock peer sending message {}", &msg);
@@ -445,10 +448,18 @@ impl MockPeer {
                         Message::Routed(msg) => conn.send_routed_message(msg, conn.peer_id().clone(), 100).await?,
                     };
                 }
-                msg = self.incoming_message(target_height) => {
+                msg = self.incoming_message(&mut current_height, target_height) => {
                     let msg = msg?;
                     messages.as_mut().queue_message(msg);
                 }
+            }
+        }
+    }
+
+    async fn run(mut self, target_height: BlockHeight) -> anyhow::Result<()> {
+        loop {
+            if let Err(e) = self.accept_and_serve(target_height).await {
+                tracing::warn!("error encountered while handling connection: {:?}", e);
             }
         }
     }
