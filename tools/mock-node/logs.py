@@ -1,7 +1,9 @@
 import argparse
+import datetime
 import re
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
 def parse_time(time_pattern, s):
     g = time_pattern.match(s).groups()
@@ -19,11 +21,21 @@ def iter_times(filename, chunk_callback, head_update_callback):
     chunk_pattern = re.compile(r'.*do_apply_chunks{block_height=(\d+).*new_chunk{shard_id=(\d+)}: chain: close time.busy=([^\s]+) time.idle=([^\s]+)')
     head_update_pattern = re.compile(r'([^\s]+).*Head updated to .* at (\d+)')
     time_pattern = re.compile(r'([\d|.]+)(.*)')
+    timestamp_pattern = re.compile(r'([^\s]+).*')
+    first_timestamp = None
     with open(filename, 'r') as f:
         while True:
             l = f.readline()
             if len(l) < 1:
                 break
+            if first_timestamp is None:
+                matches = timestamp_pattern.match(l)
+                g = matches.groups()
+                if g[0][-1] == 's':
+                    first_timestamp = 'notneeded'
+                else:
+                    first_timestamp = datetime.datetime.fromisoformat(g[0])
+
             matches = chunk_pattern.match(l)
             if matches is None:
                 matches = head_update_pattern.match(l)
@@ -32,9 +44,13 @@ def iter_times(filename, chunk_callback, head_update_callback):
                 g = matches.groups()
                 timestamp = g[0]
                 height = int(g[1])
-                if timestamp[-1] != 's':
-                    sys.exit(f'idk what to do with timestamp:\n{l}')
-                if not head_update_callback(float(timestamp[:-1]), height):
+                if timestamp[-1] == 's':
+                    elapsed_seconds = float(timestamp[:-1])
+                else:
+                    timestamp = datetime.datetime.fromisoformat(timestamp)
+                    diff = timestamp - first_timestamp
+                    elapsed_seconds = diff.total_seconds()
+                if not head_update_callback(elapsed_seconds, height):
                     return
                 continue
 
