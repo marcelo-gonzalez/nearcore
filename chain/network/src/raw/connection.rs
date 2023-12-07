@@ -291,7 +291,10 @@ impl Connection {
             }
             _ => return Err(ConnectError::UnexpectedFirstMessage(message)),
         };
-
+        tracing::info!(
+            target: "network", "Connection from {}@{:?} accepted. Sending handshake",
+            &peer_id, &stream.stream.local_addr,
+        );
         let my_peer_id = PeerId::new(secret_key.public_key());
         let handshake = new_handshake(
             &secret_key,
