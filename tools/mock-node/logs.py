@@ -17,6 +17,14 @@ def parse_time(time_pattern, s):
     if g[1] == 'ns':
         return amt/1000
 
+def us_pretty(time):
+    if time < 1000:
+        return f'{time} micros'
+    if time < 1000000:
+        return f'{time/1000} millis'
+    return f'{time/1000000} seconds'
+
+
 def iter_times(filename, chunk_callback, head_update_callback):
     chunk_pattern = re.compile(r'.*do_apply_chunks{block_height=(\d+).*new_chunk{shard_id=(\d+)}: chain: close time.busy=([^\s]+) time.idle=([^\s]+)')
     head_update_pattern = re.compile(r'([^\s]+).*Head updated to .* at (\d+)')
@@ -61,7 +69,7 @@ def iter_times(filename, chunk_callback, head_update_callback):
             idle = parse_time(time_pattern, g[3])
 
             if busy > 1000000:
-                print(f'applying chunk at height {block_height} shard {shard_id} took a long time: {busy}')
+                print(f'applying chunk at height {block_height} shard {shard_id} took a long time: {us_pretty(busy)}')
             if not chunk_callback(block_height, shard_id, busy, idle):
                 return 
 
@@ -165,7 +173,7 @@ def summary_cmd(args):
             if tbus > maxtime:
                 maxtime = tbus
                 maxheight = sh
-        print(f'max: height {maxheight} time: {maxtime}')
+        print(f'max: height {maxheight} time: {us_pretty(maxtime)}')
         print(f'average time: busy: {round(m[1], 3)} µs idle: {round(m[2], 3)} µs')
         print(f'std dev: busy: {round(s[2], 3)} idle: {round(s[2], 3)}')
 
