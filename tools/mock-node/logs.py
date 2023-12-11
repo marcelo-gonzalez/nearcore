@@ -253,7 +253,7 @@ def applies_cmd(args):
         by_item.sort(key=lambda x: x[1][1])
         x = 0
         for item in reversed(by_item):
-            print(f'{us_pretty(item[1][1])}')
+            print(f'{item[0]}: {us_pretty(item[1][1])}')
             #print(f'{us_pretty(item[1][1])} for {item[1][0]} occurrence of {item[0]}')
             x += 1
             if x > 5:
