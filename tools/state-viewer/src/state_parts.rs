@@ -82,6 +82,9 @@ pub(crate) enum StatePartsSubCommand {
         #[clap(long)]
         sync_hash: CryptoHash,
     },
+    NumParts {
+        shard_id: ShardId,
+    },
 }
 
 impl StatePartsSubCommand {
@@ -112,7 +115,7 @@ impl StatePartsSubCommand {
         let mut chain = Chain::new_for_view_client(
             epoch_manager,
             shard_tracker,
-            runtime,
+            runtime.clone(),
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
@@ -182,6 +185,9 @@ impl StatePartsSubCommand {
                 }
                 StatePartsSubCommand::Finalize { sync_hash } => {
                     finalize_state_sync(sync_hash, shard_id, &mut chain)
+                }
+                StatePartsSubCommand::NumParts { shard_id } => {
+                    num_parts(shard_id, &mut chain, runtime.as_ref())
                 }
             }
             actix::System::current().stop();
@@ -517,6 +523,26 @@ fn read_state_header(
 
     let state_header = chain.store().get_state_header(shard_id, sync_hash);
     tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
+}
+
+fn num_parts(_shard_id: ShardId, chain: &Chain, runtime: &NightshadeRuntime) {
+    use near_chain::types::RuntimeAdapter;
+    let head = chain.head().unwrap();
+    let block = chain.get_block(&head.last_block_hash).unwrap();
+
+    for c in block.chunks().iter() {
+        let s = c.prev_state_root();
+        let state_root_node =
+            runtime.get_state_root_node(c.shard_id(), block.header().hash(), &s).unwrap();
+        let num_parts =
+            near_primitives::state_sync::get_num_state_parts(state_root_node.memory_usage);
+        println!(
+            "shard {}: memory usage: {} num parts: {}",
+            c.shard_id(),
+            &state_root_node.memory_usage,
+            num_parts
+        );
+    }
 }
 
 fn finalize_state_sync(sync_hash: CryptoHash, shard_id: ShardId, chain: &mut Chain) {
