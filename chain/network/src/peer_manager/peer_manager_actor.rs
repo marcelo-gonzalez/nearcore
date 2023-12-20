@@ -862,7 +862,10 @@ impl PeerManagerActor {
                                 && last_block.as_ref().unwrap().height >= target.min_height
                                 && peer.tracked_shards.contains(&target.shard_id)
                             {
+                                tracing::info!("asdf push {:?}", &peer_id);
                                 matching_peers.push(peer_id.clone());
+                            } else {
+                                tracing::info!("asdf don't push {:?} {} {}", &peer_id, peer.archival, target.only_archival);
                             }
                         }
 
