@@ -107,7 +107,19 @@ impl fmt::Debug for DirectMessage {
             Self::AnnounceAccounts(a) => write!(f, "AnnounceAccounts({:?})", a),
             Self::BlockRequest(r) => write!(f, "BlockRequest({})", r),
             Self::Block(b) => write!(f, "Block(#{} {})", b.header().height(), b.header().hash()),
-            Self::BlockHeadersRequest(r) => write!(f, "BlockHeadersRequest({:?})", r),
+            Self::BlockHeadersRequest(r) => {
+                let hashes = if r.len() <= 2 {
+                    format!("{:?}", r)
+                } else {
+                    format!(
+                        "{} hashes: [{}, ..., {}]",
+                        r.len(),
+                        r.first().unwrap(),
+                        r.last().unwrap()
+                    )
+                };
+                write!(f, "BlockHeadersRequest({})", hashes)
+            }
             Self::BlockHeaders(h) => {
                 write!(
                     f,

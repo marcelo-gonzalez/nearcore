@@ -345,7 +345,7 @@ impl MockPeer {
         current_height: BlockHeight,
         outbound: Pin<&mut InFlightMessages>,
     ) -> anyhow::Result<()> {
-        tracing::debug!("mock peer received message: {}", &message);
+        tracing::debug!("mock peer received message: {:?}", &message);
         match message {
             Message::Direct(msg) => {
                 match msg {

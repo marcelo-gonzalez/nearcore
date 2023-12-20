@@ -9,7 +9,7 @@ use mock_node::setup::{setup_mock_node, setup_mock_node_and_neard, MockedNeard};
 use mock_node::MockNetworkConfig;
 use near_actix_test_utils::run_actix;
 use near_jsonrpc_client::JsonRpcClient;
-use near_o11y::testonly::init_integration_logger;
+use near_o11y::{default_subscriber, EnvFilterBuilder};
 use near_primitives::types::BlockHeight;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -144,7 +144,8 @@ async fn monitor_neard_status(mut mock: MockedNeard) {
 }
 
 fn main() -> anyhow::Result<()> {
-    init_integration_logger();
+    let filter = EnvFilterBuilder::from_env().finish()?;
+    let _subscriber_guard = default_subscriber(filter, &Default::default()).local();
     let args: Cli = clap::Parser::parse();
 
     if !args.run_neard_node && (args.client_home_dir.is_some() || args.client_height > 0) {
