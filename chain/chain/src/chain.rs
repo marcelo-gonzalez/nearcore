@@ -4702,23 +4702,30 @@ impl Chain {
         max_headers_returned: u64,
         max_height: Option<BlockHeight>,
     ) -> Result<Vec<BlockHeader>, Error> {
+        let now = std::time::Instant::now();
         let header = match self.find_common_header(&hashes) {
             Some(header) => header,
             None => return Ok(vec![]),
         };
+        tracing::info!("asdf common header in {:?}", now.elapsed());
 
         let mut headers = vec![];
         let header_head_height = self.header_head()?.height;
         let max_height = max_height.unwrap_or(header_head_height);
         // TODO: this may be inefficient if there are a lot of skipped blocks.
         for h in header.height() + 1..=max_height {
+            let nnow = std::time::Instant::now();
             if let Ok(header) = self.get_block_header_by_height(h) {
+                tracing::info!("asdf {} in {:?}", h, nnow.elapsed());
                 headers.push(header.clone());
                 if headers.len() >= max_headers_returned as usize {
                     break;
                 }
+            } else {
+                tracing::info!("asdf no {} in {:?}", h, nnow.elapsed());
             }
         }
+        tracing::info!("asdf retrieve_headers total: {:?}", now.elapsed());
         Ok(headers)
     }
 
