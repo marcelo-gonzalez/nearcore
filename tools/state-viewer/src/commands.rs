@@ -25,6 +25,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_primitives_core::types::Gas;
 use near_store::test_utils::create_test_store;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
@@ -729,6 +730,49 @@ pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
             }
         }
     }
+}
+
+pub(crate) fn view_keys(
+    account_id: AccountId,
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+) -> anyhow::Result<()> {
+    let chain = ChainStore::new(
+        store.clone(),
+        near_config.genesis.config.genesis_height,
+        near_config.client_config.save_trie_changes,
+    );
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+
+    let tip = chain.head().unwrap();
+    let header = chain.get_block_header(&tip.last_block_hash)?;
+    let shard_id = epoch_manager.account_id_to_shard_id(&account_id, header.epoch_id())?;
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, header.epoch_id())?;
+    let chunk_extra = chain.get_chunk_extra(header.hash(), &shard_uid)?;
+    match runtime
+        .query(
+            shard_uid,
+            chunk_extra.state_root(),
+            header.height(),
+            header.raw_timestamp(),
+            header.prev_hash(),
+            header.hash(),
+            header.epoch_id(),
+            &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+        )?
+        .kind
+    {
+        QueryResponseKind::AccessKeyList(l) => {
+            for k in l.keys {
+                println!("{}: {:?}", k.public_key, k.access_key);
+            }
+        }
+        _ => unreachable!(),
+    };
+    Ok(())
 }
 
 pub(crate) fn view_chain(

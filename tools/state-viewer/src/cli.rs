@@ -90,6 +90,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    ViewKeys(ViewKeysCmd),
 }
 
 impl StateViewerSubCommand {
@@ -145,6 +146,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
+            StateViewerSubCommand::ViewKeys(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
         }
     }
@@ -694,5 +696,17 @@ impl ViewTrieCmd {
                     .unwrap();
             }
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ViewKeysCmd {
+    #[clap(long)]
+    account_id: String,
+}
+
+impl ViewKeysCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_keys(self.account_id.parse().unwrap(), home_dir, near_config, store).unwrap();
     }
 }
