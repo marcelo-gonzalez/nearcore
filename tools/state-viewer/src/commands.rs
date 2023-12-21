@@ -1156,12 +1156,70 @@ fn account_matches(
     }
 }
 
-fn account_type(account_id: &AccountId, base: &str) -> String {
-    if account_id.as_str().ends_with(base) && account_id.as_str() != base {
-        format!("something.{}", base)
-    } else {
-        account_id.to_string()
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum AccountType {
+    SubUser,
+    Users,
+    Wallet,
+    HotWallet,
+    Earn,
+    Other,
+}
+
+struct Accounts {
+    users: String,
+    wallet: String,
+    hotwallet: String,
+    earn: String,
+}
+
+impl Accounts {
+    fn new(base: &AccountId) -> Self {
+        Self {
+            users: format!("users.{}", base),
+            wallet: format!("wallet.{}", base),
+            hotwallet: format!("hotwallet.{}", base),
+            earn: format!("earn.{}", base),
+        }
     }
+
+    fn display(&self, account_type: AccountType) -> String {
+        match account_type {
+            AccountType::SubUser => format!("{{something}}.{}", &self.users),
+            AccountType::Users => self.users.clone(),
+            AccountType::Wallet => self.wallet.clone(),
+            AccountType::HotWallet => self.hotwallet.clone(),
+            AccountType::Earn => self.earn.clone(),
+            AccountType::Other => String::from("other"),
+        }
+    }
+}
+
+fn account_type(account_id: &AccountId, accounts: &Accounts) -> AccountType {
+    if account_id.as_str() == &accounts.users {
+        AccountType::Users
+    } else if account_id.as_str() == &accounts.wallet {
+        AccountType::Wallet
+    } else if account_id.as_str() == &accounts.hotwallet {
+        AccountType::HotWallet
+    } else if account_id.as_str() == &accounts.earn {
+        AccountType::Earn
+    } else if account_id.as_str().ends_with(&accounts.users) {
+        AccountType::SubUser
+    } else {
+        AccountType::Other
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::AsRefStr)]
+enum TxType {
+    Transfer,
+    FTTransfer,
+    CreateAccount,
+    Claim,
+    StorageDepsit,
+    FTTransferCall,
+    Other,
 }
 
 pub(crate) fn show_account_txs(
@@ -1174,13 +1232,15 @@ pub(crate) fn show_account_txs(
     partial_match: bool,
     show_signer: bool,
     show_receiver: bool,
+    matplotlib: bool,
 ) -> anyhow::Result<()> {
     if !show_signer && !show_receiver {
         anyhow::bail!("what u want me to do?");
     }
 
+    let accounts = Accounts::new(&account_id);
+
     let chain = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
-    let users_acc = format!("users.{}", &account_id);
     let mut tx_types = HashMap::new();
     for height in start_height..end_height {
         let block_hash = match chain.get_block_hash_by_height(height) {
@@ -1198,6 +1258,7 @@ pub(crate) fn show_account_txs(
             }
             Err(e) => return Err(e.into()),
         };
+        let mut block_tx_types = HashMap::new();
         for c in block.chunks().iter() {
             if c.height_included() != block.header().height() {
                 continue;
@@ -1253,34 +1314,17 @@ pub(crate) fn show_account_txs(
                             ));
                         }
                     };
-                    println!(
-                        "#{}: {} -> {}: {:?}",
-                        block.header().height(),
-                        tx.transaction.signer_id.clone(),
-                        tx.transaction.receiver_id.clone(),
-                        actions,
-                    );
                     let tx_type = if tx.transaction.actions.len() == 1 {
                         match tx.transaction.actions.first().unwrap() {
-                            Action::FunctionCall(f) => {
-                                match serde_json::from_slice::<serde_json::Value>(&f.args) {
-                                    Ok(v) => match v {
-                                        serde_json::Value::Object(o) => {
-                                            let mut keys = Vec::new();
-                                            for (k, _v) in o {
-                                                keys.push(k);
-                                            }
-                                            keys.sort();
-                                            format!("{}: {:?}", &f.method_name, keys)
-                                        }
-                                        _ => format!("{}: {}", &f.method_name, v),
-                                    },
-                                    Err(_) => format!("{}: non json args", &f.method_name),
-                                }
-                            }
-                            a => {
-                                format!("{}", AsRef::<str>::as_ref(a))
-                            }
+                            Action::FunctionCall(f) => match f.method_name.as_str() {
+                                "ft_transfer" => TxType::FTTransfer,
+                                "claim" => TxType::Claim,
+                                "storage_deposit" => TxType::StorageDepsit,
+                                "ft_transfer_call" => TxType::FTTransferCall,
+                                _ => TxType::Other,
+                            },
+                            Action::Transfer(_) => TxType::Transfer,
+                            _ => TxType::Other,
                         }
                     } else {
                         let mut ca = 0;
@@ -1301,26 +1345,52 @@ pub(crate) fn show_account_txs(
                             };
                         }
                         if ca == 1 && tf == 1 && ak == 1 {
-                            String::from("create account")
+                            TxType::CreateAccount
                         } else {
-                            format!("other({})", tx.transaction.actions.len())
+                            TxType::Other
                         }
                     };
-                    let signer = account_type(&tx.transaction.signer_id, &users_acc);
-                    let receiver = account_type(&tx.transaction.receiver_id, &users_acc);
-                    let types: &mut HashMap<_, _> = tx_types.entry((signer, receiver)).or_default();
-                    let count: &mut usize = types.entry(tx_type).or_default();
-                    *count += 1;
+                    let signer = account_type(&tx.transaction.signer_id, &accounts);
+                    let receiver = account_type(&tx.transaction.receiver_id, &accounts);
+                    if !matplotlib {
+                        let types: &mut HashMap<_, _> =
+                            tx_types.entry((signer, receiver)).or_default();
+                        let count: &mut usize = types.entry(tx_type).or_default();
+                        *count += 1;
+                    } else {
+                        let count: &mut usize =
+                            block_tx_types.entry((signer, receiver, tx_type)).or_default();
+                        *count += 1;
+                    }
+                    if !matplotlib {
+                        println!(
+                            "#{}: {} -> {}: {:?}",
+                            block.header().height(),
+                            tx.transaction.signer_id.clone(),
+                            tx.transaction.receiver_id.clone(),
+                            actions,
+                        );
+                    }
                 }
             }
         }
-    }
-    println!("------\n\ntypes");
-    for (s, t) in tx_types {
-        println!("{} -> {}:", s.0, s.1);
-        for (tx_type, count) in t {
-            println!("{}: {}", tx_type, count);
+        if matplotlib && !block_tx_types.is_empty() {
+            println!("{}", block.header().height());
+            for ((signer, receiver, tx_type), count) in block_tx_types {
+                println!("{} {} {} {}", signer as u8, receiver as u8, tx_type as u8, count);
+            }
+            println!("------");
         }
     }
+    if !matplotlib {
+        println!("------\n\ntypes");
+        for (s, t) in tx_types {
+            println!("{} -> {}:", accounts.display(s.0), accounts.display(s.1));
+            for (tx_type, count) in t {
+                println!("{}: {}", AsRef::<str>::as_ref(&tx_type), count);
+            }
+        }
+    }
+
     Ok(())
 }

@@ -667,6 +667,8 @@ pub struct ShowAccountTxsCmd {
     no_signer: bool,
     #[clap(long)]
     no_receiver: bool,
+    #[clap(long)]
+    matplotlib: bool,
 }
 
 impl ShowAccountTxsCmd {
@@ -681,6 +683,7 @@ impl ShowAccountTxsCmd {
             self.partial_match,
             !self.no_signer,
             !self.no_receiver,
+            self.matplotlib,
         )
         .unwrap();
     }
