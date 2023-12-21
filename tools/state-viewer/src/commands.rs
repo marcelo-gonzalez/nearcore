@@ -26,16 +26,13 @@ use near_primitives::account::id::AccountId;
 use near_primitives::action::Action;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::ReceiptEnum;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::{
-    ExecutionOutcomeWithIdAndProof, ExecutionStatus, SignedTransaction,
-};
+use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, ExecutionStatus};
 use near_primitives::trie_key::col::NON_DELAYED_RECEIPT_COLUMNS;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
@@ -1435,23 +1432,11 @@ fn account_matches(
     }
 }
 
-fn print_actions(tx: &SignedTransaction) {
-    for a in tx.transaction.actions.iter() {
-        match a {
-            Action::FunctionCall(f) => {
-                println!(
-                    "function call:\nmethod: {}\ngas: {}\ndeposit: {}",
-                    &f.method_name, f.gas, f.deposit
-                );
-                match String::from_utf8(f.args.clone()) {
-                    Ok(args) => println!("args: {}", args),
-                    Err(_) => println!("non utf8 args len {}", f.args.len()),
-                };
-            }
-            _ => {
-                println!("{:?}", a);
-            }
-        };
+fn account_type(account_id: &AccountId, base: &str) -> String {
+    if account_id.as_str().ends_with(base) && account_id.as_str() != base {
+        format!("something.{}", base)
+    } else {
+        account_id.to_string()
     }
 }
 
@@ -1471,7 +1456,8 @@ pub(crate) fn show_account_txs(
     }
 
     let chain = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
-
+    let users_acc = format!("users.{}", &account_id);
+    let mut tx_types = HashMap::new();
     for height in start_height..end_height {
         let block_hash = match chain.get_block_hash_by_height(height) {
             Ok(h) => h,
@@ -1502,80 +1488,114 @@ pub(crate) fn show_account_txs(
                 Err(e) => return Err(e.into()),
             };
 
-            for (i, tx) in chunk.transactions().iter().enumerate() {
+            for tx in chunk.transactions().iter() {
                 if (show_signer
                     && account_matches(&tx.transaction.signer_id, &account_id, partial_match))
                     || (show_receiver
                         && account_matches(&tx.transaction.receiver_id, &account_id, partial_match))
                 {
-                    println!(
-                        "#{} shard {} transaction {} {}. signer: {} receiver: {}. {} actions\n-----------------------",
-                        height,
-                        c.shard_id(),
-                        i,
-                        tx.get_hash(),
-                        &tx.transaction.signer_id,
-                        &tx.transaction.receiver_id,
-                        tx.transaction.actions.len(),
-                    );
-                    print_actions(tx);
-
+                    let mut actions = Vec::new();
+                    for a in tx.transaction.actions.iter() {
+                        match a {
+                            Action::FunctionCall(f) => {
+                                match std::str::from_utf8(&f.args) {
+                                    Ok(s) => {
+                                        actions.push(format!("call {}: {}", &f.method_name, s));
+                                    }
+                                    Err(_) => {
+                                        actions.push(format!(
+                                            "call {}: non utf8 len {}",
+                                            &f.method_name,
+                                            f.args.len()
+                                        ));
+                                    }
+                                };
+                            }
+                            _ => {
+                                actions.push(format!("{:?}", a));
+                            }
+                        };
+                    }
                     let outcome =
                         get_execution_outcome(&chain, &tx.get_hash()).with_context(|| {
                             format!("Could not find execution outcome for tx {}", tx.get_hash())
                         })?;
-                    println!("{:?}\n-----------------\n", &outcome.outcome_with_id);
-                    if &tx.transaction.signer_id == &tx.transaction.receiver_id {
-                        if let ExecutionStatus::SuccessReceiptId(id) =
-                            &outcome.outcome_with_id.outcome.status
-                        {
-                            let o = get_execution_outcome(&chain, id).with_context(|| {
-                                format!("Could not find execution outcome for local receipt {} for tx {}", id, tx.get_hash())
-                            })?;
-                            println!(
-                                "local receipt outcome:\n{:?}\n--------------------\n",
-                                &o.outcome_with_id
-                            );
+                    match &outcome.outcome_with_id.outcome.status {
+                        ExecutionStatus::SuccessReceiptId(_) => {}
+                        _ => {
+                            actions.push(format!(
+                                "bad outcome: {:?}",
+                                &outcome.outcome_with_id.outcome.status
+                            ));
                         }
-                    }
-                }
-            }
-            for (i, r) in chunk.prev_outgoing_receipts().iter().enumerate() {
-                if (show_signer && account_matches(&r.predecessor_id, &account_id, partial_match))
-                    || (show_receiver
-                        && account_matches(&r.receiver_id, &account_id, partial_match))
-                {
+                    };
                     println!(
-                        "#{} shard {} receipt {} {} predecessor: {} receiver: {}, actions: {}\n-----------------------",
-                        height,
-                        c.shard_id(),
-                        i,
-                        &r.receipt_id,
-                        &r.predecessor_id,
-                        &r.receiver_id,
-                        match &r.receipt {
-                            ReceiptEnum::Data(_) => "DATA".to_string(),
-                            ReceiptEnum::Action(a) => {
-                                    a.actions.iter().map(|a| a.as_ref().to_string()).collect::<Vec<_>>().join(", ")
+                        "#{}: {} -> {}: {:?}",
+                        block.header().height(),
+                        tx.transaction.signer_id.clone(),
+                        tx.transaction.receiver_id.clone(),
+                        actions,
+                    );
+                    let tx_type = if tx.transaction.actions.len() == 1 {
+                        match tx.transaction.actions.first().unwrap() {
+                            Action::FunctionCall(f) => {
+                                match serde_json::from_slice::<serde_json::Value>(&f.args) {
+                                    Ok(v) => match v {
+                                        serde_json::Value::Object(o) => {
+                                            let mut keys = Vec::new();
+                                            for (k, _v) in o {
+                                                keys.push(k);
+                                            }
+                                            keys.sort();
+                                            format!("{}: {:?}", &f.method_name, keys)
+                                        }
+                                        _ => format!("{}: {}", &f.method_name, v),
+                                    },
+                                    Err(_) => format!("{}: non json args", &f.method_name),
+                                }
+                            }
+                            a => {
+                                format!("{}", AsRef::<str>::as_ref(a))
                             }
                         }
-                    );
-
-                    match get_execution_outcome(&chain, &r.receipt_id) {
-                        Ok(outcome) => {
-                            println!("{:?}\n------------------------\n", &outcome.outcome_with_id);
+                    } else {
+                        let mut ca = 0;
+                        let mut tf = 0;
+                        let mut ak = 0;
+                        for a in tx.transaction.actions.iter() {
+                            match a {
+                                Action::CreateAccount(_) => {
+                                    ca += 1;
+                                }
+                                Action::Transfer(_) => {
+                                    tf += 1;
+                                }
+                                Action::AddKey(_) => {
+                                    ak += 1;
+                                }
+                                _ => {}
+                            };
                         }
-                        Err(Error::DBNotFoundErr(_)) => {
-                            println!("no outcome");
+                        if ca == 1 && tf == 1 && ak == 1 {
+                            String::from("create account")
+                        } else {
+                            format!("other({})", tx.transaction.actions.len())
                         }
-                        Err(e) => {
-                            return Err(e).with_context(|| {
-                                format!("failed getting outcome for receipt {}", &r.receipt_id)
-                            })
-                        }
-                    }
+                    };
+                    let signer = account_type(&tx.transaction.signer_id, &users_acc);
+                    let receiver = account_type(&tx.transaction.receiver_id, &users_acc);
+                    let types: &mut HashMap<_, _> = tx_types.entry((signer, receiver)).or_default();
+                    let count: &mut usize = types.entry(tx_type).or_default();
+                    *count += 1;
                 }
             }
+        }
+    }
+    println!("------\n\ntypes");
+    for (s, t) in tx_types {
+        println!("{} -> {}:", s.0, s.1);
+        for (tx_type, count) in t {
+            println!("{}: {}", tx_type, count);
         }
     }
     Ok(())
