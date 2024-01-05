@@ -712,6 +712,8 @@ class NeardRunner:
             str(n['epoch_length']),
             '--num-seats',
             str(n['num_seats']),
+            '--min-gas-price',
+            '10000000',
         ]
         if n['protocol_version'] is not None:
             cmd.append('--protocol-version')
