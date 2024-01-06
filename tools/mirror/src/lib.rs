@@ -1208,8 +1208,8 @@ impl<T: ChainAccess> TxMirror<T> {
         }
 
         tracing::debug!(
-            target: "mirror", "preparing {} for ({}, {}) with actions: {:?}",
-            &provenance, &target_signer_id, target_secret_key.public_key(), &target_actions,
+            target: "mirror", "preparing {} for {} -> {} with actions: {:?}",
+            &provenance, &target_signer_id, &target_receiver_id, &target_actions,
         );
         let target_tx = self
             .prepare_tx(
@@ -1405,6 +1405,8 @@ impl<T: ChainAccess> TxMirror<T> {
         tracker: &mut crate::chain_tracker::TxTracker,
         chunks: &mut Vec<MappedChunk>,
     ) -> anyhow::Result<()> {
+        let _span = tracing::debug_span!(target: "mirror", "add_create_account_txs", %create_account_height).entered();
+
         let source_block = self
             .source_chain_access
             .get_txs(create_account_height, &self.tracked_shards)
@@ -1475,6 +1477,8 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: CryptoHash,
         tracker: &mut crate::chain_tracker::TxTracker,
     ) -> anyhow::Result<MappedBlock> {
+        let _span = tracing::debug_span!(target: "mirror", "fetch_txs").entered();
+
         let source_block = self
             .source_chain_access
             .get_txs(source_height, &self.tracked_shards)
@@ -1559,6 +1563,8 @@ impl<T: ChainAccess> TxMirror<T> {
         ref_hash: CryptoHash,
         check_send_time: bool,
     ) -> anyhow::Result<()> {
+        let _span = tracing::debug_span!(target: "mirror", "queue_txs").entered();
+
         if tracker.num_blocks_queued() > 100 {
             return Ok(());
         }

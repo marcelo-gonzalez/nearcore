@@ -911,8 +911,9 @@ impl TxTracker {
             || tx.provenance.is_unstake()
         {
             tracing::debug!(
-                target: "mirror", "Successfully sent transaction {} for {}: {:?}",
-                &hash, &tx.provenance, &tx.target_tx.transaction.actions,
+                target: "mirror", "Successfully sent transaction {} for {} for {} -> {}",
+                &hash, &tx.provenance, &tx.target_tx.transaction.signer_id,
+                &tx.target_tx.transaction.receiver_id,
             );
         }
         let access_key = (

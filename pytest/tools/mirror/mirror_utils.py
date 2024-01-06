@@ -232,8 +232,8 @@ class MirrorProcess:
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
             open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
             args = [
-                self.neard, 'mirror', 'run', "--source-home", self.source_home,
-                "--target-home",
+                self.neard, '--log-span-events', 'mirror', 'run',
+                "--source-home", self.source_home, "--target-home",
                 dot_near() / f'{MIRROR_DIR}/target/', '--secret-file',
                 dot_near() / f'{MIRROR_DIR}/target/mirror-secret.json'
             ]
