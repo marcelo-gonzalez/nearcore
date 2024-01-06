@@ -454,6 +454,12 @@ fn execution_status_good(status: &ExecutionStatusView) -> bool {
     )
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct MirrorConfig {
+    account_whitelist: Option<Vec<AccountId>>,
+    account_blacklist: Option<Vec<AccountId>>,
+}
+
 const CREATE_ACCOUNT_DELTA: usize = 5;
 
 struct TxMirror<T: ChainAccess> {
@@ -471,6 +477,7 @@ struct TxMirror<T: ChainAccess> {
     target_min_block_production_delay: Duration,
     tracked_shards: Vec<ShardId>,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
+    config: MirrorConfig,
 }
 
 fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
@@ -850,6 +857,7 @@ impl<T: ChainAccess> TxMirror<T> {
         source_chain_access: T,
         target_home: P,
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
+        config: MirrorConfig,
     ) -> anyhow::Result<Self> {
         let target_config =
             nearcore::config::load_config(target_home.as_ref(), GenesisValidationMode::UnsafeFast)
@@ -887,6 +895,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .min_block_production_delay,
             tracked_shards: target_config.config.tracked_shards,
             secret,
+            config,
         })
     }
 
@@ -1342,6 +1351,7 @@ impl<T: ChainAccess> TxMirror<T> {
         // is only logically included, and we won't see it in the receipts in any chunk,
         // so handle that case here
         if tx.signer_id() == tx.receiver_id()
+            && self.include_tx(tx.signer_id(), tx.receiver_id())
             && tx.actions().iter().any(|a| matches!(a, Action::FunctionCall(_)))
         {
             let tx_hash = tx.hash();
@@ -1379,7 +1389,9 @@ impl<T: ChainAccess> TxMirror<T> {
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
         if let ReceiptEnum::Action(r) = &receipt.receipt {
-            if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
+            if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_)))
+                && self.include_tx(&receipt.predecessor_id, &receipt.receiver_id)
+            {
                 self.add_function_call_keys(
                     tracker,
                     txs,
@@ -1467,6 +1479,29 @@ impl<T: ChainAccess> TxMirror<T> {
         Ok(())
     }
 
+    // Should a transaction or receipt with these involved accounts be sent,
+    // given the config white/blacklists?
+    fn include_tx(&self, source: &AccountId, receiver: &AccountId) -> bool {
+        if let Some(blacklist) = &self.config.account_blacklist {
+            for b in blacklist.iter() {
+                if source == b || receiver == b {
+                    return false;
+                }
+            }
+        }
+        if let Some(whitelist) = &self.config.account_whitelist {
+            for w in whitelist.iter() {
+                if source == w || receiver == w {
+                    return true;
+                }
+            }
+            if !whitelist.is_empty() {
+                return false;
+            }
+        }
+        true
+    }
+
     // fetch the source chain block at `source_height`, and prepare a
     // set of transactions that should be valid in the target chain
     // from it.
@@ -1492,6 +1527,9 @@ impl<T: ChainAccess> TxMirror<T> {
             let mut txs = Vec::new();
 
             for (idx, source_tx) in ch.transactions.into_iter().enumerate() {
+                if !self.include_tx(source_tx.signer_id(), source_tx.receiver_id()) {
+                    continue;
+                }
                 let (actions, nonce_updates) = self.map_actions(&source_tx).await?;
                 if actions.is_empty() {
                     // If this is a tx containing only stake actions, skip it.
@@ -1811,16 +1849,33 @@ async fn run<P: AsRef<Path>>(
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     stop_height: Option<BlockHeight>,
     online_source: bool,
+    config_path: Option<P>,
 ) -> anyhow::Result<()> {
+    let config: MirrorConfig = match config_path {
+        Some(p) => {
+            let c = std::fs::read_to_string(p.as_ref())
+                .with_context(|| format!("Could not read config from {}", p.as_ref().display()))?;
+            serde_json::from_str(&c)
+                .with_context(|| format!("Could not parse config from {}", p.as_ref().display()))?
+        }
+        None => Default::default(),
+    };
+    if let Some(whitelist) = &config.account_whitelist {
+        if whitelist.is_empty() {
+            anyhow::bail!("config with empty whitelist results in doing nothing");
+        }
+    }
     if !online_source {
         let source_chain_access = crate::offline::ChainAccess::new(source_home)?;
         let stop_height = stop_height.unwrap_or(
             source_chain_access.head_height().await.context("could not fetch source chain head")?,
         );
-        TxMirror::new(source_chain_access, target_home, secret)?.run(Some(stop_height)).await
+        TxMirror::new(source_chain_access, target_home, secret, config)?
+            .run(Some(stop_height))
+            .await
     } else {
         tracing::warn!(target: "mirror", "FIXME: currently --online-source will skip DeployContract actions");
-        TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret)?
+        TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret, config)?
             .run(stop_height)
             .await
     }

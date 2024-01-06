@@ -8,6 +8,7 @@ import pathlib
 import shutil
 import signal
 import subprocess
+import tempfile
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -227,15 +228,30 @@ class MirrorProcess:
 
     def start(self):
         env = os.environ.copy()
-        env["RUST_LOG"] = "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn," + env.get(
-            "RUST_LOG", "debug")
+        env["RUST_LOG"] = env.get(
+            "RUST_LOG",
+            "actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,mirror=debug,chain=debug,info"
+        )
+        config_path = dot_near() / f'{MIRROR_DIR}/config.json'
         with open(dot_near() / f'{MIRROR_DIR}/stdout', 'ab') as stdout, \
-            open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr:
+            open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr, \
+            open(config_path, 'w') as mirror_config:
+            json.dump(
+                {'account_whitelist': ['increase0.test0', 'increase1.test0']},
+                mirror_config)
             args = [
-                self.neard, '--log-span-events', 'mirror', 'run',
-                "--source-home", self.source_home, "--target-home",
-                dot_near() / f'{MIRROR_DIR}/target/', '--secret-file',
-                dot_near() / f'{MIRROR_DIR}/target/mirror-secret.json'
+                self.neard,
+                '--log-span-events',
+                'mirror',
+                'run',
+                "--source-home",
+                self.source_home,
+                "--target-home",
+                dot_near() / f'{MIRROR_DIR}/target/',
+                '--secret-file',
+                dot_near() / f'{MIRROR_DIR}/target/mirror-secret.json',
+                '--config-path',
+                config_path,
             ]
             if self.online_source:
                 args.append('--online-source')
@@ -316,8 +332,8 @@ def send_delete_access_key(node, key, target_key, nonce, block_hash):
     )
 
 
-def create_subaccount(node, signer_key, nonce, block_hash):
-    k = key.Key.from_random('foo.' + signer_key.account_id)
+def create_subaccount(node, signer_key, subaccount_name, nonce, block_hash):
+    k = key.Key.from_random(subaccount_name + '.' + signer_key.account_id)
     actions = []
     actions.append(transaction.create_create_account_action())
     actions.append(transaction.create_full_access_key_action(k.decoded_pk()))
@@ -631,7 +647,7 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
     start_source_height = tip.height
 
     subaccount_key = AddedKey(
-        create_subaccount(source_nodes[1], source_nodes[0].signer_key,
+        create_subaccount(source_nodes[1], source_nodes[0].signer_key, 'foo',
                           traffic_data.nonces[0], block_hash_bytes))
     traffic_data.nonces[0] += 1
 
@@ -677,6 +693,17 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
                             'test1.test0', traffic_data.nonces[1],
                             block_hash_bytes))
     traffic_data.nonces[1] += 1
+
+    increase_target0 = AddedKey(
+        create_subaccount(source_nodes[1], source_nodes[0].signer_key,
+                          'increase0', traffic_data.nonces[0],
+                          block_hash_bytes))
+    traffic_data.nonces[0] += 1
+    increase_target1 = AddedKey(
+        create_subaccount(source_nodes[1], source_nodes[0].signer_key,
+                          'increase1', traffic_data.nonces[0],
+                          block_hash_bytes))
+    traffic_data.nonces[0] += 1
 
     test0_deleted_height = None
     test0_readded_key = None
@@ -734,7 +761,16 @@ def send_traffic(near_root, source_nodes, traffic_data, callback):
             traffic_data.implicit_account.account_id(),
             implicit_account2.account_id(), 'test2', 'test3'
         ], height, block_hash_bytes)
-
+        if height % 5 == 0:
+            increase_target0.send_if_inited(
+                source_nodes[0],
+                [(receiver, height) for receiver in ['test2', 'test3']],
+                block_hash_bytes)
+        if height % 5 == 2:
+            increase_target1.send_if_inited(
+                source_nodes[0],
+                [(receiver, height) for receiver in ['test2', 'test3']],
+                block_hash_bytes)
         if implicit_added is None:
             # wait for 15 blocks after we started to get some "normal" traffic
             # from this implicit account that's closer to what we usually see from
