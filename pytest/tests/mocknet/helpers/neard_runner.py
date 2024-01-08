@@ -246,8 +246,12 @@ class NeardRunner:
         # a bit cleaner, so we can init to a non-existent directory and then move
         # the files we want to the real near home without having to remove it first
         cmd = [
-            self.data['binaries'][0]['system_path'], '--home',
-            self.tmp_near_home_path(), 'init'
+            self.data['binaries'][0]['system_path'],
+            '--home',
+            self.tmp_near_home_path(),
+            'init',
+            '--download-config-url',
+            'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/config.json',
         ]
         if not self.is_traffic_generator():
             cmd += ['--account-id', f'{socket.gethostname()}.near']
@@ -259,6 +263,11 @@ class NeardRunner:
         config['tracked_shards'] = [0, 1, 2, 3]
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
+        config['network']['boot_nodes'] = ''
+        config['telemetry']['endpoints'] = []
+        # TODO: enable this with decentralized state sync
+        config['state_sync_enabled'] = False
+        config['state_sync'] = None
         config['genesis_records_file'] = 'records.json'
         config['rpc']['enable_debug_rpc'] = True
         if self.is_traffic_generator():
