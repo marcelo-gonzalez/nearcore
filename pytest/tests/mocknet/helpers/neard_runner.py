@@ -608,6 +608,8 @@ class NeardRunner:
                     '--target-home',
                     self.target_near_home_path(),
                     '--no-secret',
+                    '--config-path',
+                    '/home/ubuntu/.near/mirror-config.json'
                 ]
             else:
                 cmd = [

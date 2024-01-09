@@ -27,6 +27,7 @@ def get_nodes(args):
         sys.exit(f'no known nodes matching {pattern}')
 
     traffic_generator = None
+    extra_traffic_generator = None
     nodes = []
     for n in all_nodes:
         if n.instance_name.endswith('traffic'):
@@ -35,12 +36,20 @@ def get_nodes(args):
                     f'more than one traffic generator instance found. {traffic_generator.instance_name} and {n.instance_name}'
                 )
             traffic_generator = n
+        elif n.instance_name.endswith('traffic2'):
+            if extra_traffic_generator is not None:
+                sys.exit(
+                    f'more than one extra traffic generator instance found. {extra_traffic_generator.instance_name} and {n.instance_name}'
+                )
+            extra_traffic_generator = n
         else:
             nodes.append(n)
 
     if traffic_generator is None:
         sys.exit(f'no traffic generator instance found')
-    return traffic_generator, nodes
+    if extra_traffic_generator is None:
+        sys.exit(f'no extra traffic generator instance found')
+    return traffic_generator, extra_traffic_generator, nodes
 
 
 def wait_node_up(node):
@@ -135,7 +144,11 @@ def prompt_init_flags(args):
             args.neard_upgrade_binary_url = url
 
 
-def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
+def init_neard_runners(args,
+                       traffic_generator,
+                       extra_traffic_generator,
+                       nodes,
+                       remove_home_dir=False):
     prompt_init_flags(args)
     if args.neard_upgrade_binary_url is None:
         configs = [{
@@ -180,12 +193,18 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
 
     init_neard_runner(traffic_generator, traffic_generator_config,
                       remove_home_dir)
+    init_neard_runner(extra_traffic_generator, traffic_generator_config,
+                      remove_home_dir)
     pmap(lambda x: init_neard_runner(x[0], x[1], remove_home_dir),
          zip(nodes, configs))
 
 
-def init_cmd(args, traffic_generator, nodes):
-    init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False)
+def init_cmd(args, traffic_generator, extra_traffic_generator, nodes):
+    init_neard_runners(args,
+                       traffic_generator,
+                       extra_traffic_generator,
+                       nodes,
+                       remove_home_dir=False)
 
 
 def hard_reset_cmd(args, traffic_generator, nodes):
@@ -195,6 +214,7 @@ def hard_reset_cmd(args, traffic_generator, nodes):
         This will undo all chain state, which will force a restart from the beginning,
         icluding the genesis state computation which takes several hours.
         Continue? [yes/no]""")
+    exit()
     if sys.stdin.readline().strip() != 'yes':
         return
     all_nodes = nodes + [traffic_generator]
@@ -203,8 +223,8 @@ def hard_reset_cmd(args, traffic_generator, nodes):
     init_neard_runners(args, traffic_generator, nodes, remove_home_dir=True)
 
 
-def restart_cmd(args, traffic_generator, nodes):
-    all_nodes = nodes + [traffic_generator]
+def restart_cmd(args, traffic_generator, extra_traffic_generator, nodes):
+    all_nodes = nodes + [traffic_generator] + [extra_traffic_generator]
     pmap(stop_neard_runner, all_nodes)
     if args.upload_program:
         pmap(upload_neard_runner, all_nodes)
@@ -242,7 +262,7 @@ def get_network_nodes(new_test_rpc_responses, num_validators):
     return validators, boot_nodes
 
 
-def new_test(args, traffic_generator, nodes):
+def new_test(args, traffic_generator, extra_traffic_generator, nodes):
     prompt_setup_flags(args)
 
     if args.epoch_length <= 0:
@@ -254,7 +274,7 @@ def new_test(args, traffic_generator, nodes):
             f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
         )
 
-    all_nodes = nodes + [traffic_generator]
+    all_nodes = nodes + [traffic_generator] + [extra_traffic_generator]
 
     logger.info(f'resetting/initializing home dirs')
     test_keys = pmap(neard_runner_new_test, all_nodes)
@@ -272,8 +292,8 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             args.genesis_protocol_version), all_nodes)
 
 
-def status_cmd(args, traffic_generator, nodes):
-    all_nodes = nodes + [traffic_generator]
+def status_cmd(args, traffic_generator, extra_traffic_generator, nodes):
+    all_nodes = nodes + [traffic_generator] + [extra_traffic_generator]
     statuses = pmap(neard_runner_ready, all_nodes)
     num_ready = 0
     not_ready = []
@@ -289,26 +309,27 @@ def status_cmd(args, traffic_generator, nodes):
         )
 
 
-def reset_cmd(args, traffic_generator, nodes):
+def reset_cmd(args, traffic_generator, extra_traffic_generator, nodes):
     if not args.yes:
         print(
             'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
         )
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
-    all_nodes = nodes + [traffic_generator]
+    all_nodes = nodes + [traffic_generator] + [extra_traffic_generator]
     pmap(neard_runner_reset, all_nodes)
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
 
 
-def stop_nodes_cmd(args, traffic_generator, nodes):
-    pmap(neard_runner_stop, nodes + [traffic_generator])
+def stop_nodes_cmd(args, traffic_generator, extra_traffic_generator, nodes):
+    pmap(neard_runner_stop,
+         nodes + [traffic_generator] + [extra_traffic_generator])
 
 
-def stop_traffic_cmd(args, traffic_generator, nodes):
-    neard_runner_stop(traffic_generator)
+def stop_traffic_cmd(args, traffic_generator, extra_traffic_generator, nodes):
+    pmap(neard_runner_stop, [traffic_generator, extra_traffic_generator])
 
 
 def neard_runner_jsonrpc(node, method, params=[]):
@@ -368,8 +389,8 @@ def neard_update_config(node, key_value):
     )
 
 
-def update_config_cmd(args, traffic_generator, nodes):
-    nodes = nodes + [traffic_generator]
+def update_config_cmd(args, traffic_generator, extra_traffic_generator, nodes):
+    nodes = nodes + [traffic_generator] + [extra_traffic_generator]
     results = pmap(
         lambda node: neard_update_config(
             node,
@@ -390,7 +411,7 @@ def neard_runner_reset(node):
     return neard_runner_jsonrpc(node, 'reset')
 
 
-def start_nodes_cmd(args, traffic_generator, nodes):
+def start_nodes_cmd(args, traffic_generator, extra_traffic_generator, nodes):
     if not all(pmap(neard_runner_ready, nodes)):
         logger.warn(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
@@ -400,7 +421,7 @@ def start_nodes_cmd(args, traffic_generator, nodes):
     pmap(wait_node_up, nodes)
 
 
-def start_traffic_cmd(args, traffic_generator, nodes):
+def start_traffic_cmd(args, traffic_generator, extra_traffic_generator, nodes):
     if not all(pmap(neard_runner_ready, nodes + [traffic_generator])):
         logger.warn(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
@@ -413,8 +434,12 @@ def start_traffic_cmd(args, traffic_generator, nodes):
         "waiting a bit after validators started before starting traffic")
     time.sleep(10)
     neard_runner_start(traffic_generator)
+    neard_runner_start(extra_traffic_generator)
     logger.info(
-        f'test running. to check the traffic sent, try running "curl http://{traffic_generator.machine.ip}:3030/metrics | grep mirror"'
+        f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.machine.ip}:3030/metrics | grep mirror"'
+    )
+    logger.info(
+        f'also "curl --silent http://{extra_traffic_generator.machine.ip}:3030/metrics | grep mirror"'
     )
 
 
@@ -422,8 +447,10 @@ def neard_runner_update_binaries(node):
     neard_runner_jsonrpc(node, 'update_binaries')
 
 
-def update_binaries_cmd(args, traffic_generator, nodes):
-    pmap(neard_runner_update_binaries, nodes + [traffic_generator])
+def update_binaries_cmd(args, traffic_generator, extra_traffic_generator,
+                        nodes):
+    pmap(neard_runner_update_binaries,
+         nodes + [traffic_generator] + [extra_traffic_generator])
 
 
 if __name__ == '__main__':
@@ -536,5 +563,5 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    traffic_generator, nodes = get_nodes(args)
-    args.func(args, traffic_generator, nodes)
+    traffic_generator, extra_traffic_generator, nodes = get_nodes(args)
+    args.func(args, traffic_generator, extra_traffic_generator, nodes)
