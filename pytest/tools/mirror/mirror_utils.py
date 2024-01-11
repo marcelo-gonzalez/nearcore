@@ -237,8 +237,13 @@ class MirrorProcess:
             open(dot_near() / f'{MIRROR_DIR}/stderr', 'ab') as stderr, \
             open(config_path, 'w') as mirror_config:
             json.dump(
-                {'account_whitelist': ['increase0.test0', 'increase1.test0']},
-                mirror_config)
+                {
+                    'account_blacklist': ['increase0.test0', 'increase1.test0'],
+                    'tx_send_interval': {
+                        'secs': 0,
+                        'nanos': 200000000
+                    }
+                }, mirror_config)
             args = [
                 self.neard,
                 '--log-span-events',

@@ -150,6 +150,8 @@ pub(crate) struct TxTracker {
     send_time: Option<Pin<Box<tokio::time::Sleep>>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
     min_block_production_delay: Duration,
+    // optional specific tx send delay
+    tx_send_interval: Option<Duration>,
     // timestamps in the target chain, used to judge how long to wait before sending a new batch of txs
     recent_block_timestamps: VecDeque<u64>,
     // last source block we'll be sending transactions for
@@ -162,6 +164,7 @@ impl TxTracker {
     // we unwrap() self.height_queued() in Self::next_heights()
     pub(crate) fn new<'a, I>(
         min_block_production_delay: Duration,
+        tx_send_interval: Option<Duration>,
         next_heights: I,
         stop_height: Option<BlockHeight>,
     ) -> Self
@@ -169,7 +172,13 @@ impl TxTracker {
         I: IntoIterator<Item = &'a BlockHeight>,
     {
         let next_heights = next_heights.into_iter().map(Clone::clone).collect();
-        Self { min_block_production_delay, next_heights, stop_height, ..Default::default() }
+        Self {
+            min_block_production_delay,
+            tx_send_interval,
+            next_heights,
+            stop_height,
+            ..Default::default()
+        }
     }
 
     pub(crate) async fn next_heights<T: ChainAccess>(
@@ -1131,9 +1140,10 @@ impl TxTracker {
 
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
-                let block_delay = self
-                    .second_longest_recent_block_delay()
-                    .unwrap_or(self.min_block_production_delay + Duration::from_millis(100));
+                let block_delay = self.tx_send_interval.unwrap_or_else(|| {
+                    self.second_longest_recent_block_delay()
+                        .unwrap_or(self.min_block_production_delay + Duration::from_millis(100))
+                });
                 match &mut self.send_time {
                     Some(t) => t.as_mut().reset(tokio::time::Instant::now() + block_delay),
                     None => {

@@ -458,6 +458,7 @@ fn execution_status_good(status: &ExecutionStatusView) -> bool {
 struct MirrorConfig {
     account_whitelist: Option<Vec<AccountId>>,
     account_blacklist: Option<Vec<AccountId>>,
+    tx_send_interval: Option<Duration>,
 }
 
 const CREATE_ACCOUNT_DELTA: usize = 5;
@@ -1800,6 +1801,7 @@ impl<T: ChainAccess> TxMirror<T> {
 
         let mut tracker = crate::chain_tracker::TxTracker::new(
             self.target_min_block_production_delay,
+            self.config.tx_send_interval,
             next_heights.iter(),
             stop_height,
         );
