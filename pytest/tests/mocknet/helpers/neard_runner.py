@@ -246,12 +246,8 @@ class NeardRunner:
         # a bit cleaner, so we can init to a non-existent directory and then move
         # the files we want to the real near home without having to remove it first
         cmd = [
-            self.data['binaries'][0]['system_path'],
-            '--home',
-            self.tmp_near_home_path(),
-            'init',
-            '--download-config-url',
-            'https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/config.json',
+            self.data['binaries'][0]['system_path'], '--home',
+            self.tmp_near_home_path(), 'init'
         ]
         if not self.is_traffic_generator():
             cmd += ['--account-id', f'{socket.gethostname()}.near']
@@ -263,13 +259,12 @@ class NeardRunner:
         config['tracked_shards'] = [0, 1, 2, 3]
         config['log_summary_style'] = 'plain'
         config['network']['skip_sync_wait'] = False
-        config['network']['boot_nodes'] = ''
-        config['telemetry']['endpoints'] = []
-        # TODO: enable this with decentralized state sync
-        config['state_sync_enabled'] = False
-        config['state_sync'] = None
         config['genesis_records_file'] = 'records.json'
         config['rpc']['enable_debug_rpc'] = True
+        config['consensus']['min_block_production_delay']['secs'] = 1
+        config['consensus']['min_block_production_delay']['nanos'] = 300000000
+        config['consensus']['max_block_production_delay']['secs'] = 3
+        config['consensus']['max_block_production_delay']['nanos'] = 0
         if self.is_traffic_generator():
             config['archive'] = True
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
@@ -714,8 +709,6 @@ class NeardRunner:
             str(n['epoch_length']),
             '--num-seats',
             str(n['num_seats']),
-            '--min-gas-price',
-            '10000000',
         ]
         if n['protocol_version'] is not None:
             cmd.append('--protocol-version')
@@ -742,6 +735,12 @@ class NeardRunner:
                 self.set_state(TestState.NONE)
                 self.save_data()
             else:
+                with open(self.target_near_home_path('genesis.json'), 'r') as f:
+                    genesis_config = json.load(f)
+                with open(self.target_near_home_path('genesis.json'), 'w') as f:
+                    genesis_config['use_production_config'] = True
+                    genesis_config['min_gas_price'] = 10000000
+                    json.dump(genesis_config, f, indent=2)
                 # TODO: if exit_code is None then we were interrupted and restarted after starting
                 # the amend-genesis command. We assume here that the command was successful. Ok for now since
                 # the command probably won't fail. But should somehow check that it was OK
