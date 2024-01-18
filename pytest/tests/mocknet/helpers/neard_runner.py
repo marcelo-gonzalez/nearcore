@@ -501,7 +501,7 @@ class NeardRunner:
         assert (self.data['neard_process'] is None)
         env = os.environ.copy()
         if 'RUST_LOG' not in env:
-            env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,indexer=info,debug'
+            env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,chain=debug,network=debug,mirror=debug,info'
         logging.info(f'running {" ".join(cmd)}')
         self.neard = subprocess.Popen(
             cmd,
