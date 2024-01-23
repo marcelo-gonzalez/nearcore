@@ -434,7 +434,8 @@ def start_traffic_cmd(args, traffic_generator, extra_traffic_generator, nodes):
         "waiting a bit after validators started before starting traffic")
     time.sleep(10)
     neard_runner_start(traffic_generator)
-    neard_runner_start(extra_traffic_generator)
+    if args.extra_traffic:
+        neard_runner_start(extra_traffic_generator)
     logger.info(
         f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.machine.ip}:3030/metrics | grep mirror"'
     )
@@ -525,6 +526,7 @@ if __name__ == '__main__':
         help=
         'Starts all nodes and starts neard mirror run on the traffic generator.'
     )
+    start_traffic_parser.add_argument('--extra-traffic', action='store_true')
     start_traffic_parser.set_defaults(func=start_traffic_cmd)
 
     start_nodes_parser = subparsers.add_parser(
