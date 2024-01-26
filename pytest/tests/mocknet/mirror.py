@@ -316,12 +316,41 @@ def reset_cmd(args, traffic_generator, extra_traffic_generator, nodes):
         )
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
+    if args.backup_id is None:
+        backups = neard_runner_ls_backups(nodes[0])
+        backups_msg = ''
+        if 'start' not in backups:
+            backups_msg += 'start: (time unknown)\n'
+        else:
+            backups_msg += f'start: {backups["start"]["time"]}\n'
+        backup_ids = sorted([k for k in list(backups.keys()) if k != 'start'])
+        for i in backup_ids:
+            backups_msg += f'{i}: {backups[i]["time"]}\n'
+
+        print(f'Backup IDs and times created (as reported by {nodes[0].instance_name}) are:\n{backups_msg}')
+        print('please enter a backup ID here:')
+        args.backup_id = sys.stdin.readline().strip()
+        if args.backup_id != 'start' and args.backup_id not in backup_ids:
+            print(f'Given backup ID ({args.backup_id}) was not in the list given')
+            sys.exit()
+
     all_nodes = nodes + [traffic_generator] + [extra_traffic_generator]
-    pmap(neard_runner_reset, all_nodes)
+    pmap(lambda node: neard_runner_reset(node, backup_id=args.backup_id), all_nodes)
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
 
+
+def make_backup_cmd(args, traffic_generator, extra_traffic_generator, nodes):
+    if not args.yes:
+        print(
+            'this will stop all nodes and create a new backup of their home dirs. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
+
+    all_nodes = nodes + [traffic_generator] + [extra_traffic_generator]
+    pmap(neard_runner_make_backup, all_nodes)
 
 def stop_nodes_cmd(args, traffic_generator, extra_traffic_generator, nodes):
     pmap(neard_runner_stop,
@@ -406,9 +435,14 @@ def update_config_cmd(args, traffic_generator, extra_traffic_generator, nodes):
 def neard_runner_ready(node):
     return neard_runner_jsonrpc(node, 'ready')
 
+def neard_runner_reset(node, backup_id=None):
+    return neard_runner_jsonrpc(node, 'reset', params={'backup_id': backup_id})
 
-def neard_runner_reset(node):
-    return neard_runner_jsonrpc(node, 'reset')
+def neard_runner_make_backup(node):
+    return neard_runner_jsonrpc(node, 'make_backup')
+
+def neard_runner_ls_backups(node):
+    return neard_runner_jsonrpc(node, 'ls_backups')
 
 
 def start_nodes_cmd(args, traffic_generator, extra_traffic_generator, nodes):
@@ -550,7 +584,15 @@ if __name__ == '__main__':
     data dirs to what was saved then, so that start-traffic will start the test all over again.
     ''')
     reset_parser.add_argument('--yes', action='store_true')
+    reset_parser.add_argument('--backup-id', type=str)
     reset_parser.set_defaults(func=reset_cmd)
+
+    backup_parser = subparsers.add_parser('make-backup',
+                                         help='''
+    Stops all nodes and haves them make a backup of the data dir that can later be restored to with the reset command
+    ''')
+    backup_parser.add_argument('--yes', action='store_true')
+    backup_parser.set_defaults(func=make_backup_cmd)
 
     # It re-uses the same binary urls because it's quite easy to do it with the
     # nearcore-release buildkite and urls in the following format without commit

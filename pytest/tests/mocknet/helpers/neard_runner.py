@@ -2,6 +2,7 @@
 # python script to handle neard process management.
 
 import argparse
+import datetime
 from enum import Enum
 import fcntl
 import json
@@ -59,6 +60,10 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
         self.dispatcher.add_method(server.neard_runner.do_start, name="start")
         self.dispatcher.add_method(server.neard_runner.do_stop, name="stop")
         self.dispatcher.add_method(server.neard_runner.do_reset, name="reset")
+        self.dispatcher.add_method(server.neard_runner.do_make_backup,
+                                   name="make_backup")
+        self.dispatcher.add_method(server.neard_runner.do_ls_backups,
+                                   name="ls_backups")
         self.dispatcher.add_method(server.neard_runner.do_update_binaries,
                                    name="update_binaries")
         super().__init__(request, client_address, server)
@@ -107,6 +112,10 @@ class TestState(Enum):
     RUNNING = 5
     STOPPED = 6
     RESETTING = 7
+    MAKING_BACKUP = 8
+    # we set this if there's an error somewhere where it's not obvious what to do,
+    # and where a human should investigate and fix it
+    ERROR = 9
 
 
 class NeardRunner:
@@ -186,9 +195,8 @@ class NeardRunner:
             })
         return binaries
 
-    def reset_current_neard_path(self):
-        self.data['current_neard_path'] = self.data['binaries'][0][
-            'system_path']
+    def set_current_neard_path(self, path):
+        self.data['current_neard_path'] = path
 
     # tries to download the binaries specified in config.json, saving them in $home/binaries/
     # if force is set to true all binaries will be downloaded, otherwise only the missing ones
@@ -226,7 +234,8 @@ class NeardRunner:
             with self.lock:
                 self.data['binaries'].append(b)
                 if self.data['current_neard_path'] is None:
-                    self.reset_current_neard_path()
+                    self.set_current_neard_path(
+                        self.data['binaries'][0]['system_path'])
                 self.save_data()
 
     def target_near_home_path(self, *args):
@@ -331,6 +340,8 @@ class NeardRunner:
                 validator_account_id = None
                 validator_public_key = None
 
+            self.data['backups'] = {}
+            self.data['current_backup'] = None
             self.set_state(TestState.AWAITING_NETWORK_INIT)
             self.save_data()
 
@@ -437,25 +448,51 @@ class NeardRunner:
                 self.set_state(TestState.STOPPED)
                 self.save_data()
 
-    def do_reset(self):
+    def do_reset(self, backup_id=None):
         with self.lock:
             state = self.get_state()
             logging.info(f"do_reset {state}")
-            if state == TestState.RUNNING:
-                self.kill_neard()
-                self.set_state(TestState.RESETTING)
-                self.reset_current_neard_path()
-                self.save_data()
-            elif state == TestState.STOPPED:
-                self.set_state(TestState.RESETTING)
-                self.reset_current_neard_path()
-                self.save_data()
-            else:
+            if state != TestState.RUNNING and state != TestState.STOPPED:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32600,
-                    message=
-                    'Cannot reset node as test state has not been initialized yet'
-                )
+                    message='Cannot reset data dir as test state is not ready')
+
+            try:
+                backups = self.data['backups']
+            except KeyError:
+                backups = {}
+            if backup_id is not None and backup_id != 'start' and backup_id not in backups:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32600, message=f'backup ID {backup_id} not known')
+
+            if backup_id is None or backup_id == 'start':
+                path = self.data['binaries'][0]['system_path']
+            else:
+                path = backups[backup_id]['neard_path']
+
+            if state == TestState.RUNNING:
+                self.kill_neard()
+            self.set_state(TestState.RESETTING)
+            self.set_current_neard_path(path)
+            self.data['current_backup'] = backup_id
+            self.save_data()
+
+    def do_make_backup(self):
+        with self.lock:
+            state = self.get_state()
+            if state != TestState.RUNNING and state != TestState.STOPPED:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32600,
+                    message='Cannot make backup as test state is not ready')
+
+            if state == TestState.RUNNING:
+                self.kill_neard()
+            self.set_state(TestState.MAKING_BACKUP)
+            self.save_data()
+
+    def do_ls_backups(self):
+        with self.lock:
+            return self.data.get('backups', {})
 
     def do_update_binaries(self):
         logging.info('update binaries')
@@ -792,6 +829,33 @@ class NeardRunner:
                 self.set_state(TestState.STATE_ROOTS)
                 self.save_data()
 
+    def make_backup(self, name):
+        now = str(datetime.datetime.now())
+        backup_dir = self.home_path('backups', name)
+        if os.path.exists(backup_dir):
+            logging.warn(
+                f'cannot backup home dir to {backup_dir}: already exists')
+            return
+        logging.info(f'copying data dir to {backup_dir}')
+        shutil.copytree(self.target_near_home_path('data'), backup_dir)
+        logging.info(f'copied data dir to {backup_dir}')
+        with self.lock:
+            try:
+                backups = self.data['backups']
+            except KeyError:
+                backups = {}
+            if name in backups:
+                logging.warn(
+                    f'backup {name} already existed in data.json, but it was not present in backups dir before'
+                )
+            backups[name] = {
+                'time': now,
+                'neard_path': self.data['current_neard_path']
+            }
+            self.data['backups'] = backups
+            self.set_state(TestState.STOPPED)
+            self.save_data()
+
     def check_genesis_state(self):
         path, running, exit_code = self.poll_neard()
         if not running:
@@ -812,28 +876,48 @@ class NeardRunner:
                 except FileNotFoundError:
                     pass
                 os.mkdir(self.home_path('backups'))
-                # Right now we save the backup to backups/start and in the future
-                # it would be nice to support a feature that lets you stop all the nodes and
-                # make another backup to restore to
-                backup_dir = self.home_path('backups', 'start')
-                logging.info(f'copying data dir to {backup_dir}')
-                shutil.copytree(self.target_near_home_path('data'), backup_dir)
-                self.set_state(TestState.STOPPED)
-                self.save_data()
+                self.make_backup('start')
+
         except requests.exceptions.ConnectionError:
             pass
 
-    def reset_near_home(self):
+    def make_new_backup(self):
+        with self.lock:
+            try:
+                backups = self.data['backups']
+                # here we are assuming that the name of each backup is either 'start' or an int,
+                # and the new backup will be the maximum of the ones we've already saved + 1
+                max_name = 0
+                for b in backups:
+                    if b != 'start':
+                        n = int(b)
+                        if n > max_name:
+                            max_name = n
+                name = str(max_name + 1)
+            except KeyError:
+                name = '1'
+
+        self.make_backup(name)
+
+    def reset_near_home(self, current_backup):
+        if current_backup is None:
+            current_backup = 'start'
+        backup_path = self.home_path('backups', current_backup)
+        if not os.path.exists(backup_path):
+            logging.error(f'backup dir {backup_path} does not exist')
+            with self.lock:
+                self.set_state(TestState.ERROR)
+                self.save_data()
         try:
             logging.info("removing the old directory")
             shutil.rmtree(self.target_near_home_path('data'))
         except FileNotFoundError:
             pass
-        logging.info('restoring data dir from backup')
-        shutil.copytree(self.home_path('backups', 'start'),
-                        self.target_near_home_path('data'))
+        logging.info(f'restoring data dir from backup at {backup_path}')
+        shutil.copytree(backup_path, self.target_near_home_path('data'))
         logging.info('data dir restored')
         with self.lock:
+            self.data['current_backup'] = None
             self.set_state(TestState.STOPPED)
             self.save_data()
 
@@ -853,12 +937,17 @@ class NeardRunner:
             elif state == TestState.AMEND_GENESIS:
                 self.do_and_unlock(self.check_amend_genesis)
             elif state == TestState.STATE_ROOTS:
-                self.do_and_unlock(self.check_genesis_state)
+                self.lock.release()
+                self.check_genesis_state()
             elif state == TestState.RUNNING:
                 self.do_and_unlock(self.check_upgrade_neard)
             elif state == TestState.RESETTING:
+                current_backup = self.data['current_backup']
                 self.lock.release()
-                self.reset_near_home()
+                self.reset_near_home(current_backup)
+            elif state == TestState.MAKING_BACKUP:
+                self.lock.release()
+                self.make_new_backup()
             else:
                 self.lock.release()
             time.sleep(10)
