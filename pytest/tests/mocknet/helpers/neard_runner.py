@@ -833,24 +833,34 @@ class NeardRunner:
         shutil.copytree(self.home_path('backups', 'start'),
                         self.target_near_home_path('data'))
         logging.info('data dir restored')
-        self.set_state(TestState.STOPPED)
-        self.save_data()
+        with self.lock:
+            self.set_state(TestState.STOPPED)
+            self.save_data()
+
+    def do_and_unlock(self, f):
+        try:
+            f()
+        finally:
+            self.lock.release()
 
     # periodically check if we should update neard after a new epoch
     def main_loop(self):
         while True:
-            with self.lock:
-                state = self.get_state()
-                if state == TestState.AWAITING_NETWORK_INIT:
-                    self.network_init()
-                elif state == TestState.AMEND_GENESIS:
-                    self.check_amend_genesis()
-                elif state == TestState.STATE_ROOTS:
-                    self.check_genesis_state()
-                elif state == TestState.RUNNING:
-                    self.check_upgrade_neard()
-                elif state == TestState.RESETTING:
-                    self.reset_near_home()
+            self.lock.acquire()
+            state = self.get_state()
+            if state == TestState.AWAITING_NETWORK_INIT:
+                self.do_and_unlock(self.network_init)
+            elif state == TestState.AMEND_GENESIS:
+                self.do_and_unlock(self.check_amend_genesis)
+            elif state == TestState.STATE_ROOTS:
+                self.do_and_unlock(self.check_genesis_state)
+            elif state == TestState.RUNNING:
+                self.do_and_unlock(self.check_upgrade_neard)
+            elif state == TestState.RESETTING:
+                self.lock.release()
+                self.reset_near_home()
+            else:
+                self.lock.release()
             time.sleep(10)
 
     def serve(self, port):
