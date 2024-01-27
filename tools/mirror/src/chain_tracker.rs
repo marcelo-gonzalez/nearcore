@@ -455,6 +455,9 @@ impl TxTracker {
         // sleep until 20 milliseconds before we want to send transactions before we check for nonces
         // in the target chain. In the second or so between now and then, we might process another block
         // that will set the nonces.
+        if self.send_time.is_none() {
+            self.send_time = Some(Box::pin(tokio::time::sleep(Duration::from_secs(10))));
+        }
         if let Some(s) = &self.send_time {
             tokio::time::sleep_until(s.as_ref().deadline() - Duration::from_millis(20)).await;
         }
