@@ -538,7 +538,7 @@ class NeardRunner:
         assert (self.data['neard_process'] is None)
         env = os.environ.copy()
         if 'RUST_LOG' not in env:
-            env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,chain=debug,network=debug,mirror=debug,info'
+            env['RUST_LOG'] = 'actix_web=warn,mio=warn,tokio_util=warn,actix_server=warn,actix_http=warn,chain=debug,client=debug,mirror=debug,resharding=debug,info'
         logging.info(f'running {" ".join(cmd)}')
         self.neard = subprocess.Popen(
             cmd,
@@ -640,8 +640,8 @@ class NeardRunner:
                     '--target-home',
                     self.target_near_home_path(),
                     '--no-secret',
-                    '--config-path',
-                    '/home/ubuntu/.near/mirror-config.json'
+                    # '--config-path',
+                    # '/home/ubuntu/.near/mirror-config.json'
                 ]
             else:
                 cmd = [

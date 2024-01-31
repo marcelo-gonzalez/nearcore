@@ -92,17 +92,17 @@ def prompt_setup_flags(args):
 
 
 def start_neard_runner(node):
-    cmd_utils.run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
-        '--home /home/ubuntu/neard-runner --neard-home /home/ubuntu/.near ' \
+    cmd_utils.run_in_background(node, f'/home/ubuntu/.near/neard-runner/venv/bin/python /home/ubuntu/.near/neard-runner/neard_runner.py ' \
+        '--home /home/ubuntu/.near/neard-runner --neard-home /home/ubuntu/.near ' \
         '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
 
 
 def upload_neard_runner(node):
     node.machine.upload('tests/mocknet/helpers/neard_runner.py',
-                        '/home/ubuntu/neard-runner',
+                        '/home/ubuntu/.near/neard-runner',
                         switch_user='ubuntu')
     node.machine.upload('tests/mocknet/helpers/requirements.txt',
-                        '/home/ubuntu/neard-runner',
+                        '/home/ubuntu/.near/neard-runner',
                         switch_user='ubuntu')
 
 
