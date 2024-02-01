@@ -1,4 +1,6 @@
 use anyhow::Context;
+use near_crypto::PublicKey;
+use near_primitives::types::AccountId;
 use near_primitives::types::BlockHeight;
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -13,6 +15,7 @@ pub struct MirrorCommand {
 enum SubCommand {
     Prepare(PrepareCmd),
     Run(RunCmd),
+    Key(KeyCmd),
 }
 
 /// initialize a target chain with genesis records from the source chain, and
@@ -131,6 +134,59 @@ impl PrepareCmd {
     }
 }
 
+#[derive(clap::Parser)]
+struct KeyCmd {
+    #[clap(long)]
+    public_key: Option<String>,
+    #[clap(long)]
+    account_id: Option<String>,
+    #[clap(long)]
+    extra: bool,
+    #[clap(long)]
+    secret_file: Option<PathBuf>,
+}
+
+impl KeyCmd {
+    fn run(self) -> anyhow::Result<()> {
+        let secret = if let Some(secret_file) = &self.secret_file {
+            let secret = crate::secret::load(secret_file)
+                .with_context(|| format!("Failed to load secret from {:?}", secret_file))?;
+            secret
+        } else {
+            None
+        };
+        if let Some(public_key) = self.public_key {
+            let public_key: PublicKey = public_key.parse().context("bad key")?;
+            let new_key = crate::key_mapping::map_key(&public_key, secret.as_ref());
+
+            println!("{}\n--------------------", public_key);
+            println!("secret {}", &new_key);
+            println!("public {}", new_key.public_key());
+        }
+
+        if let Some(account_id) = self.account_id {
+            let account_id: AccountId = account_id.parse().context("bad account ID")?;
+            let public_key =
+                PublicKey::from_near_implicit_account(&account_id).context("account ID not implicit")?;
+            let new_key = crate::key_mapping::map_key(&public_key, secret.as_ref());
+            let new_account: String = hex::encode(new_key.public_key().key_data()).parse().unwrap();
+
+            println!("{}\n--------------------------", account_id);
+            println!("secret {}", &new_key);
+            println!("public {}", new_key.public_key());
+            println!("account ID {}", new_account);
+        }
+
+        if self.extra {
+            println!("extra\n------------------------");
+            let k = crate::key_mapping::default_extra_key(secret.as_ref());
+            println!("secret {}", &k);
+            println!("public {}", &k.public_key());
+        }
+        Ok(())
+    }
+}
+
 // copied from neard/src/cli.rs
 fn new_actix_system(runtime: tokio::runtime::Runtime) -> actix::SystemRunner {
     // `with_tokio_rt()` accepts an `Fn()->Runtime`, however we know that this function is called exactly once.
@@ -151,6 +207,7 @@ impl MirrorCommand {
         match self.subcmd {
             SubCommand::Prepare(r) => r.run(),
             SubCommand::Run(r) => r.run(),
+            SubCommand::Key(r) => r.run(),
         }
     }
 }
