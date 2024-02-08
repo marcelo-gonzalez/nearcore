@@ -219,4 +219,6 @@ impl crate::ChainAccess for ChainAccess {
         }
         Ok(ret)
     }
+
+    async fn allow_gc(&self, _block_hash: CryptoHash) {}
 }

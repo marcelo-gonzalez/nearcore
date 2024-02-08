@@ -9,7 +9,7 @@ pub use near_client_primitives::types::{
 };
 
 pub use crate::adapter::{
-    BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
+    BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetGCBlock, SetNetworkInfo,
 };
 pub use crate::client::{Client, ProduceChunkResult};
 #[cfg(feature = "test_features")]

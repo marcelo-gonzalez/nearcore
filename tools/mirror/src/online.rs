@@ -3,7 +3,7 @@ use actix::Addr;
 use anyhow::Context;
 use async_trait::async_trait;
 use near_chain_configs::GenesisValidationMode;
-use near_client::ViewClientActor;
+use near_client::{ClientActor, SetGCBlock, ViewClientActor};
 use near_client_primitives::types::{
     GetBlock, GetBlockError, GetChunkError, GetExecutionOutcome, GetRealChunk, GetReceipt, Query,
 };
@@ -23,18 +23,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub(crate) struct ChainAccess {
+    client: Addr<ClientActor>,
     view_client: Addr<ViewClientActor>,
 }
 
 impl ChainAccess {
     pub(crate) fn new<P: AsRef<Path>>(home: P) -> anyhow::Result<Self> {
-        let config =
+        let mut config =
             nearcore::config::load_config(home.as_ref(), GenesisValidationMode::UnsafeFast)
                 .with_context(|| format!("Error loading config from {:?}", home.as_ref()))?;
-
+        config.client_config.state_sync_enabled = false;
+        config.client_config.gc.gc_control = true;
         let node = nearcore::start_with_config(home.as_ref(), config)
             .context("failed to start NEAR node")?;
-        Ok(Self { view_client: node.view_client })
+        Ok(Self { client: node.client, view_client: node.view_client })
     }
 }
 
@@ -234,5 +236,9 @@ impl crate::ChainAccess for ChainAccess {
             _ => unreachable!(),
         };
         Ok(ret)
+    }
+
+    async fn allow_gc(&self, block_hash: CryptoHash) {
+        self.client.send(SetGCBlock { block_hash }.with_span_context()).await.unwrap();
     }
 }

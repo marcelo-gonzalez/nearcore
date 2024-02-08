@@ -121,6 +121,12 @@ pub struct ProcessTxRequest {
     pub check_only: bool,
 }
 
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct SetGCBlock {
+    pub block_hash: CryptoHash,
+}
+
 #[derive(actix::MessageResponse, Debug, PartialEq, Eq)]
 pub enum ProcessTxResponse {
     /// No response.

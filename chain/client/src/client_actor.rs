@@ -7,8 +7,8 @@
 
 use crate::adapter::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
-    StateResponse,
+    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetGCBlock,
+    SetNetworkInfo, StateResponse,
 };
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
@@ -396,6 +396,22 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                     Some(store_validator.tests_done())
                 }
             }
+        })
+    }
+}
+
+impl Handler<WithSpanContext<SetGCBlock>> for ClientActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<SetGCBlock>,
+        ctx: &mut Context<Self>,
+    ) -> Self::Result {
+        self.wrap(msg, ctx, "SetGCBlock", |this: &mut Self, msg| {
+            let SetGCBlock { block_hash } = msg;
+            this.client.runtime_adapter.set_gc_stop_block(&block_hash);
         })
     }
 }
