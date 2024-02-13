@@ -28,7 +28,6 @@ use near_primitives::views::{
 use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
-use nearcore::config::NearConfig;
 use rocksdb::DB;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -421,22 +420,14 @@ struct TxMirror<T: ChainAccess> {
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
 }
 
-fn open_db<P: AsRef<Path>>(home: P, config: &NearConfig) -> anyhow::Result<DB> {
-    let db_path = near_store::NodeStorage::opener(
-        home.as_ref(),
-        config.config.archive,
-        &config.config.store,
-        None,
-    )
-    .path()
-    .join("mirror");
+fn open_db<P: AsRef<Path>>(home: P) -> anyhow::Result<DB> {
     let mut options = rocksdb::Options::default();
     options.create_missing_column_families(true);
     options.create_if_missing(true);
     let cf_descriptors = DBCol::iter()
         .map(|col| rocksdb::ColumnFamilyDescriptor::new(col.name(), options.clone()))
         .collect::<Vec<_>>();
-    Ok(DB::open_cf_descriptors(&options, db_path, cf_descriptors)?)
+    Ok(DB::open_cf_descriptors(&options, home.as_ref(), cf_descriptors)?)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -797,6 +788,7 @@ impl<T: ChainAccess> TxMirror<T> {
     fn new<P: AsRef<Path>>(
         source_chain_access: T,
         target_home: P,
+        mirror_db_path: P,
         secret: Option<[u8; crate::secret::SECRET_LEN]>,
     ) -> anyhow::Result<Self> {
         let target_config =
@@ -811,8 +803,7 @@ impl<T: ChainAccess> TxMirror<T> {
             // chain right before we went offline
             anyhow::bail!("config file in {} has archive: false, but archive must be set to true for the target chain", target_home.as_ref().display());
         }
-        let db =
-            open_db(target_home.as_ref(), &target_config).context("failed to open mirror DB")?;
+        let db = open_db(mirror_db_path).context("failed to open mirror DB")?;
         let target_indexer = Indexer::new(near_indexer::IndexerConfig {
             home_dir: target_home.as_ref().to_path_buf(),
             sync_mode: near_indexer::SyncModeEnum::FromInterruption,
@@ -1771,6 +1762,7 @@ impl<T: ChainAccess> TxMirror<T> {
 async fn run<P: AsRef<Path>>(
     source_home: P,
     target_home: P,
+    mirror_db_path: P,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
     stop_height: Option<BlockHeight>,
     online_source: bool,
@@ -1780,10 +1772,17 @@ async fn run<P: AsRef<Path>>(
         let stop_height = stop_height.unwrap_or(
             source_chain_access.head_height().await.context("could not fetch source chain head")?,
         );
-        TxMirror::new(source_chain_access, target_home, secret)?.run(Some(stop_height)).await
-    } else {
-        TxMirror::new(crate::online::ChainAccess::new(source_home)?, target_home, secret)?
-            .run(stop_height)
+        TxMirror::new(source_chain_access, target_home, mirror_db_path, secret)?
+            .run(Some(stop_height))
             .await
+    } else {
+        TxMirror::new(
+            crate::online::ChainAccess::new(source_home)?,
+            target_home,
+            mirror_db_path,
+            secret,
+        )?
+        .run(stop_height)
+        .await
     }
 }

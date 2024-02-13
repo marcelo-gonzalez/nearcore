@@ -234,7 +234,8 @@ class MirrorProcess:
             args = [
                 self.neard, 'mirror', 'run', "--source-home", self.source_home,
                 "--target-home",
-                dot_near() / f'{MIRROR_DIR}/target/', '--secret-file',
+                dot_near() / f'{MIRROR_DIR}/target/', '--mirror-db-path',
+                dot_near() / f'{MIRROR_DIR}/mirror/', '--secret-file',
                 dot_near() / f'{MIRROR_DIR}/target/mirror-secret.json'
             ]
             if self.online_source:
