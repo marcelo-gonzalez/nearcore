@@ -413,6 +413,7 @@ struct TxMirror<T: ChainAccess> {
     target_genesis_height: BlockHeight,
     target_min_block_production_delay: Duration,
     secret: Option<[u8; crate::secret::SECRET_LEN]>,
+    default_extra_key: SecretKey,
 }
 
 fn open_db<P: AsRef<Path>>(home: P) -> anyhow::Result<DB> {
@@ -801,6 +802,7 @@ impl<T: ChainAccess> TxMirror<T> {
         .context("failed to start target chain indexer")?;
         let (target_view_client, target_client) = target_indexer.client_actors();
         let target_stream = target_indexer.streamer();
+        let default_extra_key = crate::key_mapping::default_extra_key(secret.as_ref());
 
         Ok(Self {
             source_chain_access,
@@ -813,6 +815,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 .client_config
                 .min_block_production_delay,
             secret,
+            default_extra_key,
         })
     }
 
@@ -946,7 +949,7 @@ impl<T: ChainAccess> TxMirror<T> {
         }
         if account_created && !full_key_added {
             actions.push(Action::AddKey(Box::new(AddKeyAction {
-                public_key: crate::key_mapping::EXTRA_KEY.public_key(),
+                public_key: self.default_extra_key.public_key(),
                 access_key: AccessKey::full_access(),
             })));
         }
@@ -1088,7 +1091,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             target: "mirror", "trying to prepare a transaction with the default extra key for {} because no full access key for {} in the source chain is known at block {}",
                             &provenance, &target_signer_id, &block_hash,
                         );
-                        crate::key_mapping::EXTRA_KEY
+                        self.default_extra_key.clone()
                     }
                 }
             }
@@ -1141,7 +1144,7 @@ impl<T: ChainAccess> TxMirror<T> {
         }
         if account_created && !full_key_added {
             target_actions.push(Action::AddKey(Box::new(AddKeyAction {
-                public_key: crate::key_mapping::EXTRA_KEY.public_key(),
+                public_key: self.default_extra_key.public_key(),
                 access_key: AccessKey::full_access(),
             })));
         }
