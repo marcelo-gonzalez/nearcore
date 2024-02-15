@@ -44,8 +44,8 @@ impl ChainAccess {
 impl crate::ChainAccess for ChainAccess {
     async fn init(
         &self,
-        last_height: BlockHeight,
-        num_initial_blocks: usize,
+        _last_height: BlockHeight,
+        _num_initial_blocks: usize,
     ) -> anyhow::Result<Vec<BlockHeight>> {
         // first wait until HEAD moves. We don't really need it to be fully synced.
         let mut first_height = None;
@@ -54,7 +54,7 @@ impl crate::ChainAccess for ChainAccess {
                 Ok(head) => match first_height {
                     Some(h) => {
                         if h != head {
-                            break;
+                            anyhow::bail!("done");
                         }
                     }
                     None => {
@@ -68,30 +68,30 @@ impl crate::ChainAccess for ChainAccess {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
 
-        let mut block_heights = Vec::with_capacity(num_initial_blocks);
-        let mut height = last_height;
+        // let mut _block_heights = Vec::with_capacity(num_initial_blocks);
+        // let mut _height = _last_height;
 
-        loop {
-            // note that here we are using the fact that get_next_block_height() for this struct
-            // allows passing a height that doesn't exist in the chain. This is not true for the offline
-            // version
-            match self.get_next_block_height(height).await {
-                Ok(h) => {
-                    block_heights.push(h);
-                    height = h;
-                    if block_heights.len() >= num_initial_blocks {
-                        return Ok(block_heights);
-                    }
-                }
-                Err(ChainError::Unknown) => {
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                }
-                Err(ChainError::Other(e)) => {
-                    return Err(e)
-                        .with_context(|| format!("failed fetching next block after #{}", height))
-                }
-            }
-        }
+        // loop {
+        //     // note that here we are using the fact that get_next_block_height() for this struct
+        //     // allows passing a height that doesn't exist in the chain. This is not true for the offline
+        //     // version
+        //     match self.get_next_block_height(height).await {
+        //         Ok(h) => {
+        //             block_heights.push(h);
+        //             height = h;
+        //             if block_heights.len() >= num_initial_blocks {
+        //                 return Ok(block_heights);
+        //             }
+        //         }
+        //         Err(ChainError::Unknown) => {
+        //             tokio::time::sleep(Duration::from_millis(500)).await;
+        //         }
+        //         Err(ChainError::Other(e)) => {
+        //             return Err(e)
+        //                 .with_context(|| format!("failed fetching next block after #{}", height))
+        //         }
+        //     }
+        // }
     }
 
     async fn block_height_to_hash(&self, height: BlockHeight) -> Result<CryptoHash, ChainError> {
