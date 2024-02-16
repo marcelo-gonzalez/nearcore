@@ -1437,8 +1437,12 @@ impl ClientActor {
         metrics::PEERS_WITH_INVALID_HASH
             .set(self.network_info.highest_height_peers.len() as i64 - eligible_peers.len() as i64);
         let peer_info = if let Some(peer_info) = eligible_peers.choose(&mut thread_rng()) {
+            tracing::info!(target: "sync", "asdf syncing_info {} found peer out of {}", head.height, eligible_peers.len());
             peer_info
         } else {
+            tracing::info!(target: "sync", "asdf syncing_info {} found no peer out of {}. total = {}", head.height, eligible_peers.len(), self
+            .network_info
+            .highest_height_peers.len());
             return Ok(SyncRequirement::NoPeers);
         };
 
@@ -1447,14 +1451,18 @@ impl ClientActor {
 
         if is_syncing {
             if highest_height <= head.height {
+                tracing::info!(target: "sync", "asdf syncing_info is_syncing {} {} already caught up", head.height, highest_height);
                 Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
             } else {
+                tracing::info!(target: "sync", "asdf syncing_info is_syncing {} {} need sync", head.height, highest_height);
                 Ok(SyncRequirement::SyncNeeded { peer_id, highest_height, head })
             }
         } else {
             if highest_height > head.height + self.client.config.sync_height_threshold {
+                tracing::info!(target: "sync", "asdf syncing_info not is_syncing {} {} {} need sync", head.height, highest_height, self.client.config.sync_height_threshold);
                 Ok(SyncRequirement::SyncNeeded { peer_id, highest_height, head })
             } else {
+                tracing::info!(target: "sync", "asdf syncing_info not is_syncing {} {} {} caught up", head.height, highest_height, self.client.config.sync_height_threshold);
                 Ok(SyncRequirement::AlreadyCaughtUp { peer_id, highest_height, head })
             }
         }

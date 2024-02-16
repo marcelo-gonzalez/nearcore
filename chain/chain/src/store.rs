@@ -185,6 +185,7 @@ pub trait ChainStoreAccess {
         }
         let header_height = header.height();
         if header_height < height {
+            tracing::info!("wtf get_block_header_on_chain_by_height {} {}", header_height, height);
             return Err(Error::InvalidBlockHeight(header_height));
         }
         self.get_block_header(&hash)

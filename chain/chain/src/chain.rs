@@ -644,6 +644,7 @@ impl Chain {
         // known invalid blocks so the network recovers faster in case of any issues.
         if error.is_bad_data() && !matches!(error, Error::InvalidSignature) {
             metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
+            tracing::info!("qwerty put invalid block {} {}", &block_hash, error);
             self.invalid_blocks.put(block_hash, ());
         }
     }
@@ -1922,6 +1923,7 @@ impl Chain {
             // overflow-related problems
             let block_height = header.height();
             if block_height > head.height + self.epoch_length * 20 {
+                tracing::info!("wtf sandbox {} {}", block_height, head.height);
                 return Err(Error::InvalidBlockHeight(block_height));
             }
         }
@@ -1960,6 +1962,7 @@ impl Chain {
 
         // Do not accept old forks
         if prev_height < self.runtime_adapter.get_gc_stop_height(&head.last_block_hash) {
+            tracing::info!("wtf old fork {} {}", prev_height, self.runtime_adapter.get_gc_stop_height(&head.last_block_hash));
             return Err(Error::InvalidBlockHeight(prev_height));
         }
 
@@ -3215,6 +3218,7 @@ impl Chain {
         loop {
             let header = self.get_block_header(&last_block_hash)?;
             if header.height() < first_block_height {
+                tracing::info!("wtf get_blocks_until_height {} {}", header.height() ,first_block_height);
                 return Err(Error::InvalidBlockHeight(first_block_height));
             }
 
