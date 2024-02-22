@@ -2773,6 +2773,7 @@ impl Chain {
             // these blocks will never get caught up. So we add these blocks back to the processed_blocks
             // queue.
             if self.blocks_in_processing.has_blocks_to_catch_up(&queued_block) {
+                tracing::debug!(target: "catchup", "catchup_blocks_step blocks_in_processing.has_blocks_to_catch_up({}) = true", &queued_block);
                 processed_blocks.insert(queued_block, results);
             } else {
                 match self.block_catch_up_postprocess(me, &queued_block, results) {
@@ -2783,17 +2784,20 @@ impl Chain {
                         {
                             saw_one = true;
                             blocks_catch_up_state.pending_blocks.push(next_block_hash);
+                            tracing::debug!(target: "catchup", "catchup_blocks_step blocks_in_processing.has_blocks_to_catch_up({}) = false, push pending {}", &queued_block, &next_block_hash);
                         }
                         if saw_one {
                             assert_eq!(
                                 self.epoch_manager.get_epoch_id_from_prev_block(&queued_block)?,
                                 blocks_catch_up_state.epoch_id
                             );
+                        } else {
+                            tracing::debug!(target: "catchup", "catchup_blocks_step blocks_in_processing.has_blocks_to_catch_up({}) = false, no pending", &queued_block);
                         }
                         blocks_catch_up_state.done_blocks.push(queued_block);
                     }
-                    Err(_) => {
-                        error!("Error processing block during catch up, retrying");
+                    Err(e) => {
+                        error!(target: "catchup", "Error processing block during catch up, retrying: {:?}", e);
                         blocks_catch_up_state.pending_blocks.push(queued_block);
                     }
                 }
@@ -2802,6 +2806,7 @@ impl Chain {
         blocks_catch_up_state.processed_blocks = processed_blocks;
 
         for pending_block in blocks_catch_up_state.pending_blocks.drain(..) {
+            tracing::debug!(target: "catchup", "catchup_blocks_step apply chunks for {}", &pending_block);
             let block = self.chain_store.get_block(&pending_block)?.clone();
             let prev_block = self.chain_store.get_block(block.header().prev_hash())?.clone();
 
@@ -2934,6 +2939,7 @@ impl Chain {
         affected_blocks: &[CryptoHash],
     ) -> Result<(), Error> {
         debug!(
+            target: "catchup",
             "Finishing catching up blocks after syncing pre {:?}, me: {:?}",
             epoch_first_block, me
         );

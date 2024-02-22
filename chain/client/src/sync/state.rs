@@ -1011,6 +1011,7 @@ impl StateSync {
                 &sync_hash,
                 state_roots?,
             )?;
+            tracing::debug!(target: "sync", %shard_uid, %sync_hash, "resharding done");
             *shard_sync_download =
                 ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateSyncDone };
             shard_sync_done = true;
