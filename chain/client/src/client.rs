@@ -2382,6 +2382,8 @@ impl Client {
                         )?;
 
                         self.process_block_processing_artifact(block_processing_artifacts);
+                    } else {
+                        debug!(target: "catchup", "blocks_catch_up_state.is_finished = false");
                     }
                 }
             }
