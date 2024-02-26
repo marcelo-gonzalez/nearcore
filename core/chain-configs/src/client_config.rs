@@ -45,6 +45,8 @@ pub struct GCConfig {
 
     /// Number of epochs for which we keep store data.
     pub gc_num_epochs_to_keep: u64,
+
+    pub gc_control: bool,
 }
 
 impl Default for GCConfig {
@@ -53,6 +55,7 @@ impl Default for GCConfig {
             gc_blocks_limit: 2,
             gc_fork_clean_step: 100,
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+            gc_control: false,
         }
     }
 }

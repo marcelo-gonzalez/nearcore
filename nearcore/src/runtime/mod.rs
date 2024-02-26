@@ -44,6 +44,7 @@ use near_store::metadata::DbKind;
 use near_store::{
     ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
+    GC_BLOCK_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
@@ -56,7 +57,7 @@ use node_runtime::{
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use std::time::Instant;
 use tracing::{debug, error, info};
@@ -78,6 +79,7 @@ pub struct NightshadeRuntime {
     epoch_manager: Arc<EpochManagerHandle>,
     migration_data: Arc<MigrationData>,
     gc_num_epochs_to_keep: u64,
+    gc_block: Option<RwLock<CryptoHash>>,
 }
 
 impl NightshadeRuntime {
@@ -113,6 +115,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
+            config.client_config.gc.gc_control,
         )
     }
 
@@ -126,6 +129,7 @@ impl NightshadeRuntime {
         gc_num_epochs_to_keep: u64,
         trie_config: TrieConfig,
         state_snapshot_config: StateSnapshotConfig,
+        gc_control: bool,
     ) -> Arc<Self> {
         let runtime_config_store = match runtime_config_store {
             Some(store) => store,
@@ -151,7 +155,16 @@ impl NightshadeRuntime {
         }) {
             tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
         }
-
+        let gc_block = if gc_control {
+            let gc_block = store
+                .get_ser::<CryptoHash>(DBCol::BlockMisc, GC_BLOCK_KEY)
+                .unwrap()
+                .unwrap_or_default();
+            tracing::debug!(target: "runtime", "NightshadeRuntime initialized with gc block: {}", &gc_block);
+            Some(RwLock::new(gc_block))
+        } else {
+            None
+        };
         let migration_data = Arc::new(load_migration_data(&genesis_config.chain_id));
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
@@ -163,6 +176,7 @@ impl NightshadeRuntime {
             epoch_manager,
             migration_data,
             gc_num_epochs_to_keep: gc_num_epochs_to_keep.max(MIN_GC_NUM_EPOCHS_TO_KEEP),
+            gc_block,
         })
     }
 
@@ -190,6 +204,7 @@ impl NightshadeRuntime {
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
                 compaction_enabled: false,
             },
+            false,
         )
     }
 
@@ -217,6 +232,7 @@ impl NightshadeRuntime {
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
                 compaction_enabled: false,
             },
+            false,
         )
     }
 
@@ -534,6 +550,14 @@ impl NightshadeRuntime {
             let epoch_first_block_info = epoch_manager.get_block_info(&epoch_first_block)?;
             epoch_start_height = epoch_first_block_info.height();
             last_block_in_prev_epoch = *epoch_first_block_info.prev_hash();
+        }
+        if let Some(b) = &self.gc_block {
+            let b = b.read().unwrap();
+            let first = *epoch_manager.get_block_info(&b)?.epoch_first_block();
+            let first_block = epoch_manager.get_block_info(&first)?;
+            if epoch_start_height > first_block.height() {
+                epoch_start_height = first_block.height();
+            }
         }
 
         // An archival node with split storage should perform garbage collection
@@ -867,6 +891,29 @@ impl RuntimeAdapter for NightshadeRuntime {
             Err(error) => {
                 info!(target: "runtime", "Error when getting the gc stop height. This error may naturally occur after the gc_num_epochs_to_keep config is increased. It should disappear as soon as the node builds up all epochs it wants. Error: {}", error);
                 self.genesis_config.genesis_height
+            }
+        }
+    }
+
+    fn set_gc_stop_block(&self, block_hash: &CryptoHash) {
+        let epoch_manager = self.epoch_manager.read();
+        match epoch_manager.get_block_info(block_hash) {
+            Ok(_) => {
+                let mut update = self.store.store_update();
+                if let Err(e) =
+                    update.set_ser::<CryptoHash>(DBCol::BlockMisc, GC_BLOCK_KEY, block_hash)
+                {
+                    tracing::warn!(target: "runtime", "set_gc_stop_block() can't set GC_BLOCK_KEY to {}: {:?}", block_hash, e);
+                    return;
+                }
+                if let Err(e) = update.commit() {
+                    tracing::warn!(target: "runtime", "set_gc_stop_block() can't commit GC_BLOCK_KEY to {}: {:?}", block_hash, e);
+                    return;
+                }
+                *self.gc_block.as_ref().unwrap().write().unwrap() = *block_hash;
+            }
+            Err(e) => {
+                tracing::warn!(target: "runtime", "set_gc_stop_block() can't find block info for {}: {:?}", block_hash, e);
             }
         }
     }

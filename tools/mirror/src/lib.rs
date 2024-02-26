@@ -391,6 +391,8 @@ trait ChainAccess {
         account_id: &AccountId,
         block_hash: &CryptoHash,
     ) -> Result<Vec<PublicKey>, ChainError>;
+
+    async fn allow_gc(&self, block_hash: CryptoHash);
 }
 
 fn execution_status_good(status: &ExecutionStatusView) -> bool {
@@ -1621,6 +1623,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     let mut mapped_block = mapped_block?;
                     source_hash = mapped_block.source_hash;
                     self.send_transactions(mapped_block.chunks.iter_mut().flat_map(|c| c.txs.iter_mut())).await?;
+                    self.source_chain_access.allow_gc(source_hash).await;
                     tracker.on_txs_sent(&self.db, crate::chain_tracker::SentBatch::MappedBlock(mapped_block), target_height).await?;
 
                     // now we have one second left until we need to send more transactions. In the

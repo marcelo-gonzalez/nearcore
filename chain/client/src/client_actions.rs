@@ -39,8 +39,8 @@ use near_client_primitives::types::{
 };
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
-    StateResponse,
+    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetGCBlock,
+    SetNetworkInfo, StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -315,6 +315,15 @@ impl ClientActionHandler<ProcessTxRequest> for ClientActions {
     fn handle(&mut self, msg: ProcessTxRequest) -> Self::Result {
         let ProcessTxRequest { transaction, is_forwarded, check_only } = msg;
         self.client.process_tx(transaction, is_forwarded, check_only)
+    }
+}
+
+impl ClientActionHandler<SetGCBlock> for ClientActions {
+    type Result = ();
+
+    fn handle(&mut self, msg: SetGCBlock) -> Self::Result {
+        let SetGCBlock { block_hash } = msg;
+        self.client.runtime_adapter.set_gc_stop_block(&block_hash);
     }
 }
 
