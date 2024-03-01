@@ -6,6 +6,7 @@ use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::{BlockHeight, RawStateChangesWithTrieKey};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
@@ -64,19 +65,13 @@ impl FlatStorageManager {
         );
     }
 
-    /// Creates flat storage instance for shard `shard_uid`. The function also checks that
-    /// the shard's flat storage state hasn't been set before, otherwise it panics.
-    /// TODO (#7327): this behavior may change when we implement support for state sync
-    /// and resharding.
+    /// Creates flat storage instance for shard `shard_uid` if it's not already present.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard");
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let original_value =
-            flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid)?);
-        // TODO (#7327): maybe we should propagate the error instead of assert here
-        // assert is fine now because this function is only called at construction time, but we
-        // will need to be more careful when we want to implement flat storage for resharding
-        assert!(original_value.is_none());
+        if let Entry::Vacant(v) = flat_storages.entry(shard_uid) {
+            v.insert(FlatStorage::new(self.0.store.clone(), shard_uid)?);
+        }
         Ok(())
     }
 
