@@ -347,6 +347,9 @@ fn apply_resharding(
         &next_epoch_shard_layout,
         state_changes,
     )?;
+    for r in results.iter() {
+        tracing::info!("apply_resharding result for {:?}: {:?}", &r.shard_uid, &r.new_root);
+    }
     Ok(ReshardingResult { shard_uid, results })
 }
 

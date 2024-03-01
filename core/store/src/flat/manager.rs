@@ -120,6 +120,8 @@ impl FlatStorageManager {
                     }
                 }
             });
+        } else {
+            tracing::info!(target: "store", ?shard_uid, hash = %block.header().hash(), "update_flat_storage_for_shard no flat storage")
         }
         Ok(())
     }
@@ -161,7 +163,7 @@ impl FlatStorageManager {
             flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?
         } else {
             // Otherwise, save delta to disk so it will be used for flat storage creation later.
-            debug!(target: "store", %shard_uid, "Add delta for flat storage creation");
+            debug!(target: "store", %shard_uid, %block_hash, %height, "Add delta for flat storage creation");
             let mut store_update: StoreUpdate = self.0.store.store_update();
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
             store_update
