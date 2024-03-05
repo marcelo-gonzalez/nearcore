@@ -23,7 +23,7 @@ use crate::{
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
-fn initialize_sharded_genesis_state(
+pub fn initialize_sharded_genesis_state(
     store: Store,
     genesis: &Genesis,
     shard_layout: &ShardLayout,
