@@ -925,7 +925,9 @@ pub fn remove_account(
 }
 
 pub fn get_genesis_state_roots(store: &Store) -> io::Result<Option<Vec<StateRoot>>> {
-    store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY)
+    let ret = store.get_ser::<Vec<StateRoot>>(DBCol::BlockMisc, GENESIS_STATE_ROOTS_KEY);
+    tracing::info!("asdf genesis state roots {:?}", &ret);
+    ret
 }
 
 pub fn get_genesis_hash(store: &Store) -> io::Result<Option<CryptoHash>> {
