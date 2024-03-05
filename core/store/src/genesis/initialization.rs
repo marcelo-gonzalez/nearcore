@@ -8,7 +8,6 @@ use borsh::BorshDeserialize;
 use near_chain_configs::{Genesis, GenesisContents};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::{
-    epoch_manager::EpochConfig,
     shard_layout::{account_id_to_shard_id, ShardLayout},
     state_record::{state_record_to_account_id, StateRecord},
     types::{AccountId, NumShards, ShardId, StateRoot},
@@ -24,7 +23,12 @@ use crate::{
 const STATE_DUMP_FILE: &str = "state_dump";
 const GENESIS_ROOTS_FILE: &str = "genesis_roots";
 
-pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Option<&Path>) {
+fn initialize_sharded_genesis_state(
+    store: Store,
+    genesis: &Genesis,
+    shard_layout: &ShardLayout,
+    home_dir: Option<&Path>,
+) {
     // Ignore initialization if we already have genesis hash and state roots in store
     let stored_hash = get_genesis_hash(&store).expect("Store failed on genesis intialization");
     if let Some(_hash) = stored_hash {
@@ -42,7 +46,7 @@ pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Optio
             }
             genesis_state_from_dump(store.clone(), home_dir.unwrap())
         } else {
-            genesis_state_from_genesis(store.clone(), genesis)
+            genesis_state_from_genesis(store.clone(), genesis, shard_layout)
         };
         let genesis_hash = genesis.json_hash();
         let mut store_update = store.store_update();
@@ -51,7 +55,7 @@ pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Optio
         store_update.commit().expect("Store failed on genesis intialization");
     }
 
-    let num_shards = genesis.config.shard_layout.shard_ids().count() as NumShards;
+    let num_shards = shard_layout.shard_ids().count() as NumShards;
     assert_eq!(
         num_shards,
         genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
@@ -59,6 +63,10 @@ pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Optio
         num_shards,
         genesis.config.num_block_producer_seats_per_shard.len() as NumShards,
     );
+}
+
+pub fn initialize_genesis_state(store: Store, genesis: &Genesis, home_dir: Option<&Path>) {
+    initialize_sharded_genesis_state(store, genesis, &genesis.config.shard_layout, home_dir);
 }
 
 fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
@@ -74,7 +82,11 @@ fn genesis_state_from_dump(store: Store, home_dir: &Path) -> Vec<StateRoot> {
     state_roots
 }
 
-fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot> {
+fn genesis_state_from_genesis(
+    store: Store,
+    genesis: &Genesis,
+    shard_layout: &ShardLayout,
+) -> Vec<StateRoot> {
     match &genesis.contents {
         GenesisContents::Records { records } => {
             info!(
@@ -97,11 +109,11 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
     let runtime_config_store = RuntimeConfigStore::for_chain_id(&genesis.config.chain_id);
     let runtime_config = runtime_config_store.get_config(genesis.config.protocol_version);
     let storage_usage_config = &runtime_config.fees.storage_usage_config;
-    let initial_epoch_config = EpochConfig::from(&genesis.config);
-    let shard_layout = initial_epoch_config.shard_layout;
-    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+    let shard_uids: Vec<_> = shard_layout.shard_uids().collect();
+    // note that here we are depending on the behavior that shard_layout.shard_uids() returns an iterator
+    // in order by shard id from 0 to num_shards()
     let mut shard_account_ids: Vec<HashSet<AccountId>> =
-        shard_ids.iter().map(|_| HashSet::new()).collect();
+        shard_uids.iter().map(|_| HashSet::new()).collect();
     let mut has_protocol_account = false;
     info!(target: "store","distributing records to shards");
 
@@ -118,15 +130,16 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
     let tries = ShardTries::new(
         store.clone(),
         TrieConfig::default(),
-        &genesis.config.shard_layout.shard_uids().collect::<Vec<_>>(),
+        &shard_uids,
         FlatStorageManager::new(store),
         StateSnapshotConfig::default(),
     );
 
     let writers = std::sync::atomic::AtomicUsize::new(0);
-    shard_ids
+    shard_uids
         .into_par_iter()
-        .map(|shard_id| {
+        .map(|shard_uid| {
+            let shard_id = shard_uid.shard_id();
             let validators = genesis
                 .config
                 .validators
@@ -147,7 +160,7 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
             GenesisStateApplier::apply(
                 &writers,
                 tries.clone(),
-                shard_id,
+                shard_uid,
                 &validators,
                 storage_usage_config,
                 genesis,
