@@ -593,7 +593,7 @@ impl EpochManager {
         let config = self.config.for_protocol_version(protocol_version);
         // Note: non-deterministic iteration is fine here, there can be only one
         // version with large enough stake.
-        let next_version = if let Some((version, stake)) =
+        let mut next_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
             let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
@@ -607,6 +607,9 @@ impl EpochManager {
         } else {
             protocol_version
         };
+        if 1 < 2 {
+            next_version = 65;
+        }
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {
