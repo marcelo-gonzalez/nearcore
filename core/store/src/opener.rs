@@ -365,7 +365,7 @@ impl<'a> StoreOpener<'a> {
         let default_kind = get_default_kind(archive, temp);
         let err =
             Err(StoreOpenerError::DbKindMismatch { which, got: current_kind, want: default_kind });
-
+        tracing::warn!("{} {} {:?} {:?}", opener.path.display(), archive, &current_kind, &default_kind);
         // If kind is set check if it's the expected one.
         if let Some(current_kind) = current_kind {
             if !is_valid_kind_temp(current_kind, temp) {
