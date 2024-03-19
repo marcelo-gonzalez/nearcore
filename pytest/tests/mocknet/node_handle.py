@@ -81,8 +81,10 @@ class NodeHandle:
     def neard_runner_stop(self):
         return self.neard_runner_jsonrpc('stop')
 
-    def neard_runner_new_test(self):
+    def neard_runner_new_test(self, extra_params={}):
         params = self.node.new_test_params()
+        for k, v in extra_params.items():
+            params[k] = v
         return self.neard_runner_jsonrpc('new_test', params)
 
     def neard_runner_network_init(self, validators, boot_nodes, epoch_length,

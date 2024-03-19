@@ -257,7 +257,7 @@ class NeardRunner:
         args = ('tmp-near-home',) + args
         return os.path.join(self.home, *args)
 
-    def neard_init(self, rpc_port, protocol_port, validator_id):
+    def neard_init(self, rpc_port, protocol_port, validator_id, split_storage):
         # We make neard init save files to self.tmp_near_home_path() just to make it
         # a bit cleaner, so we can init to a non-existent directory and then move
         # the files we want to the real near home without having to remove it first
@@ -291,7 +291,20 @@ class NeardRunner:
         config['consensus']['max_block_production_delay']['secs'] = 3
         config['consensus']['max_block_production_delay']['nanos'] = 0
         if self.is_traffic_generator():
+            if split_storage:
+                logging.warning(
+                    'ignoring split_storage initialization request for traffic generator'
+                )
             config['archive'] = True
+        elif split_storage:
+            # put dbs in data/ as a hack to not have to modify the backup/reset code
+            config['store']['path'] = 'data/hot-data'
+            config['cold_store'] = config['store'].copy()
+            config['cold_store']['path'] = 'data/cold-data'
+            config['archive'] = True
+            config['save_trie_changes'] = True
+            config['split_storage'] = {'enable_split_storage_view_client': True}
+
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
             json.dump(config, f, indent=2)
 
@@ -326,7 +339,8 @@ class NeardRunner:
     def do_new_test(self,
                     rpc_port=3030,
                     protocol_port=24567,
-                    validator_id=None):
+                    validator_id=None,
+                    split_storage=False):
         if not isinstance(rpc_port, int):
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='rpc_port argument not an int')
@@ -336,6 +350,9 @@ class NeardRunner:
         if validator_id is not None and not isinstance(validator_id, str):
             raise jsonrpc.exceptions.JSONRPCDispatchException(
                 code=-32600, message='validator_id argument not a string')
+        if not isinstance(split_storage, bool):
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600, message='split_storage argument not a bool')
 
         with self.lock:
             self.kill_neard()
@@ -352,7 +369,8 @@ class NeardRunner:
             except FileNotFoundError:
                 pass
 
-            self.neard_init(rpc_port, protocol_port, validator_id)
+            self.neard_init(rpc_port, protocol_port, validator_id,
+                            split_storage)
             self.move_init_files()
 
             with open(self.target_near_home_path('config.json'), 'r') as f:

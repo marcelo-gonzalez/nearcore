@@ -178,11 +178,14 @@ def new_test(args, traffic_generator, nodes):
             f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
         )
 
-    all_nodes = nodes + [traffic_generator]
+    node_args = [[node, {}] for node in nodes] + [[traffic_generator, {}]]
+    if args.one_split_storage_node:
+        node_args[len(nodes)-1][1] = { 'split_storage': True }
 
     logger.info(f'resetting/initializing home dirs')
-    test_keys = pmap(lambda node: node.neard_runner_new_test(), all_nodes)
+    test_keys = pmap(lambda x: x[0].neard_runner_new_test(x[1]), node_args)
 
+    all_nodes = [n[0] for n in node_args]
     validators, boot_nodes = get_network_nodes(
         zip([n.ip_addr() for n in all_nodes], test_keys), args.num_validators)
 
@@ -386,6 +389,7 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--epoch-length', type=int)
     new_test_parser.add_argument('--num-validators', type=int)
     new_test_parser.add_argument('--num-seats', type=int)
+    new_test_parser.add_argument('--one-split-storage-node', action='store_true')
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test)
