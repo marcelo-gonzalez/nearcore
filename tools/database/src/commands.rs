@@ -1,4 +1,4 @@
-use crate::adjust_database::ChangeDbKindCommand;
+use crate::adjust_database::{ChangeDbKindCommand, GetDbKindCommand};
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
 use crate::compact::RunCompactionCommand;
@@ -29,6 +29,8 @@ enum SubCommand {
     /// Change DbKind of hot or cold db.
     ChangeDbKind(ChangeDbKindCommand),
 
+    GetDbKind(GetDbKindCommand),
+
     /// Run SST file compaction on database
     CompactDatabase(RunCompactionCommand),
 
@@ -58,6 +60,7 @@ impl DatabaseCommand {
             SubCommand::AnalyseDataSizeDistribution(cmd) => cmd.run(home),
             SubCommand::AnalyseGasUsage(cmd) => cmd.run(home),
             SubCommand::ChangeDbKind(cmd) => cmd.run(home),
+            SubCommand::GetDbKind(cmd) => cmd.run(home),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
             SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
             SubCommand::MakeSnapshot(cmd) => {

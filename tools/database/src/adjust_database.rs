@@ -46,3 +46,25 @@ impl ChangeDbKindCommand {
         Ok(store.set_db_kind(self.new_kind)?)
     }
 }
+
+#[derive(clap::Args)]
+pub(crate) struct GetDbKindCommand {
+
+}
+
+impl GetDbKindCommand {
+    pub(crate) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
+        let near_config = nearcore::config::load_config(
+            &home_dir,
+            near_chain_configs::GenesisValidationMode::UnsafeFast,
+        )?;
+        let opener = NodeStorage::opener(
+            home_dir,
+            near_config.config.archive,
+            &near_config.config.store,
+            near_config.config.cold_store.as_ref(),
+        );
+        let _storage = opener.open_in_mode(near_store::Mode::ReadOnly);
+        Ok(())
+    }
+}
