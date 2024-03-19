@@ -1358,7 +1358,7 @@ impl From<NodeKeyFile> for KeyFile {
 
 pub fn load_config(
     dir: &Path,
-    genesis_validation: GenesisValidationMode,
+    _genesis_validation: GenesisValidationMode,
 ) -> anyhow::Result<NearConfig> {
     let mut validation_errors = ValidationErrors::new();
 
@@ -1398,51 +1398,51 @@ pub fn load_config(
         }
     };
 
-    let genesis_file = dir.join(&config.genesis_file);
-    let genesis_result = match &config.genesis_records_file {
-        // only load Genesis from file. Skip test for now.
-        // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
-        Some(records_file) => Genesis::from_files(
-            &genesis_file,
-            dir.join(records_file),
-            GenesisValidationMode::UnsafeFast,
-        ),
-        None => Genesis::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
-    };
+    // let genesis_file = dir.join(&config.genesis_file);
+    // let genesis_result = match &config.genesis_records_file {
+    //     // only load Genesis from file. Skip test for now.
+    //     // this allows us to know the chain_id in order to check tracked_shards even if semantics checks fail.
+    //     Some(records_file) => Genesis::from_files(
+    //         &genesis_file,
+    //         dir.join(records_file),
+    //         GenesisValidationMode::UnsafeFast,
+    //     ),
+    //     None => Genesis::from_file(&genesis_file, GenesisValidationMode::UnsafeFast),
+    // };
 
-    let genesis = match genesis_result {
-        Ok(genesis) => {
-            if let Err(e) = genesis.validate(genesis_validation) {
-                validation_errors.push_errors(e)
-            };
-            if validator_signer.is_some()
-                && matches!(
-                    genesis.config.chain_id.as_ref(),
-                    near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
-                )
-                && config.tracked_shards.is_empty()
-            {
-                // Make sure validators tracks all shards, see
-                // https://github.com/near/nearcore/issues/7388
-                let error_message = "The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector";
-                validation_errors.push_cross_file_semantics_error(error_message.to_string());
-            }
-            Some(genesis)
-        }
-        Err(error) => {
-            validation_errors.push_errors(error);
-            None
-        }
-    };
+    // let genesis = match genesis_result {
+    //     Ok(genesis) => {
+    //         if let Err(e) = genesis.validate(genesis_validation) {
+    //             validation_errors.push_errors(e)
+    //         };
+    //         if validator_signer.is_some()
+    //             && matches!(
+    //                 genesis.config.chain_id.as_ref(),
+    //                 near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
+    //             )
+    //             && config.tracked_shards.is_empty()
+    //         {
+    //             // Make sure validators tracks all shards, see
+    //             // https://github.com/near/nearcore/issues/7388
+    //             let error_message = "The `chain_id` field specified in genesis is among mainnet/betanet/testnet, so validator must track all shards. Please change `tracked_shards` field in config.json to be any non-empty vector";
+    //             validation_errors.push_cross_file_semantics_error(error_message.to_string());
+    //         }
+    //         Some(genesis)
+    //     }
+    //     Err(error) => {
+    //         validation_errors.push_errors(error);
+    //         None
+    //     }
+    // };
 
     validation_errors.return_ok_or_error()?;
 
-    if genesis.is_none() || network_signer.is_none() {
-        panic!("Genesis and network_signer should not be None by now.")
-    }
+    // if genesis.is_none() || network_signer.is_none() {
+    //     panic!("Genesis and network_signer should not be None by now.")
+    // }
     let near_config = NearConfig::new(
         config,
-        genesis.unwrap(),
+        Default::default(),
         network_signer.unwrap().into(),
         validator_signer,
     )?;
