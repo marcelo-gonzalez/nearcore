@@ -21,7 +21,7 @@ use rocksdb::DB;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 mod errors;
 mod fetchers;
@@ -144,7 +144,7 @@ async fn build_streamer_message(
         let mut chunk_receipts = chunk_local_receipts;
 
         let mut receipt_execution_outcomes: Vec<IndexerExecutionOutcomeWithReceipt> = vec![];
-        for outcome in receipt_outcomes {
+        'receipt_outcomes_loop: for outcome in receipt_outcomes {
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let receipt = if let Some(receipt) = receipt {
                 receipt
@@ -156,11 +156,15 @@ async fn build_streamer_message(
                 let mut prev_block_hash = block.header.prev_hash;
                 'find_local_receipt: loop {
                     if prev_block_tried > 1000 {
-                        panic!("Failed to find local receipt in 1000 prev blocks");
+                        warn!("Failed to find local receipt in 1000 prev blocks");
+                        continue 'receipt_outcomes_loop;
                     }
                     let prev_block = match fetch_block(&client, prev_block_hash).await {
                         Ok(block) => block,
-                        Err(err) => panic!("Unable to get previous block: {:?}", err),
+                        Err(err) => {
+                            warn!("Unable to get previous block: {:?}", err);
+                            continue 'receipt_outcomes_loop;
+                        }
                     };
 
                     prev_block_hash = prev_block.header.prev_hash;
