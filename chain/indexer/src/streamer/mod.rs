@@ -68,6 +68,7 @@ async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
 ) -> Result<StreamerMessage, FailedToFetchData> {
+    tracing::info!("asdf build_streamer_message {}", &block.header.hash);
     let _timer = metrics::BUILD_STREAMER_MESSAGE_TIME.start_timer();
     let chunks = fetch_block_chunks(&client, &block).await?;
 
@@ -147,6 +148,7 @@ async fn build_streamer_message(
         for outcome in receipt_outcomes {
             let IndexerExecutionOutcomeWithOptionalReceipt { execution_outcome, receipt } = outcome;
             let receipt = if let Some(receipt) = receipt {
+                tracing::info!("asdf build_streamer_message {} shard {} outcome {} has receipt", &block.header.hash, shard_id, &execution_outcome.id);
                 receipt
             } else {
                 // Receipt might be missing only in case of delayed local receipt
@@ -154,10 +156,12 @@ async fn build_streamer_message(
                 // we will be iterating over previous blocks until we found the receipt
                 let mut prev_block_tried = 0u16;
                 let mut prev_block_hash = block.header.prev_hash;
+                tracing::info!("asdf build_streamer_message {} shard {} outcome no receipt: {} {}\n{:?}", &block.header.hash, shard_id, &execution_outcome.block_hash, &execution_outcome.id, &execution_outcome.outcome);
                 'find_local_receipt: loop {
                     if prev_block_tried > 1000 {
                         panic!("Failed to find local receipt in 1000 prev blocks");
                     }
+                    tracing::info!("asdf build_streamer_message {} shard {} outcome {} find receipt in {}", &block.header.hash, shard_id, &execution_outcome.id, &prev_block_hash);
                     let prev_block = match fetch_block(&client, prev_block_hash).await {
                         Ok(block) => block,
                         Err(err) => panic!("Unable to get previous block: {:?}", err),
