@@ -1442,6 +1442,7 @@ pub(crate) fn show_account_txs(
     partial_match: bool,
     show_signer: bool,
     show_receiver: bool,
+    all_outcomes: bool,
 ) -> anyhow::Result<()> {
     if !show_signer && !show_receiver {
         anyhow::bail!("what u want me to do?");
@@ -1457,6 +1458,17 @@ pub(crate) fn show_account_txs(
                 return Err(e).with_context(|| format!("cant get block hash for #{}", height))
             }
         };
+        if all_outcomes {
+            let o = chain.get_block_execution_outcomes(&block_hash)?;
+            for (shard_id, outcomes) in o {
+                if outcomes.len() > 0 {
+                    println!("shard {}", shard_id);
+                    for o in outcomes {
+                        println!("{:?}", &o.outcome_with_id);
+                    }
+                }
+            }
+        }
         let block = match chain.get_block(&block_hash) {
             Ok(b) => b,
             Err(Error::DBNotFoundErr(_)) => {

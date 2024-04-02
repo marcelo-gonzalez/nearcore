@@ -731,6 +731,8 @@ pub struct ShowAccountTxsCmd {
     no_signer: bool,
     #[clap(long)]
     no_receiver: bool,
+    #[clap(long)]
+    all_outcomes: bool,
 }
 
 impl ShowAccountTxsCmd {
@@ -745,6 +747,7 @@ impl ShowAccountTxsCmd {
             self.partial_match,
             !self.no_signer,
             !self.no_receiver,
+            self.all_outcomes,
         )
         .unwrap();
     }
