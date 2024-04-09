@@ -10,7 +10,7 @@ use near_primitives::types::{
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
+    BlockView,BlockHeaderView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
     GasPriceView, LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView,
     QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, SplitStorageInfoView,
     StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView, TxStatusView,
@@ -374,6 +374,13 @@ impl From<SyncStatus> for SyncStatusView {
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub struct GetBlockHeader(pub BlockReference);
+
+impl Message for GetBlockHeader {
+    type Result = Result<BlockHeaderView, GetBlockError>;
 }
 
 /// Actor message requesting block by id, hash or sync state.

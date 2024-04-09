@@ -29,6 +29,12 @@ pub struct RpcBlockResponse {
     pub block_view: near_primitives::views::BlockView,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct RpcBlockHeaderResponse {
+    #[serde(flatten)]
+    pub header_view: near_primitives::views::BlockHeaderView,
+}
+
 impl From<RpcBlockError> for crate::errors::RpcError {
     fn from(error: RpcBlockError) -> Self {
         let error_data = match &error {

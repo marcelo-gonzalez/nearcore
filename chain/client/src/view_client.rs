@@ -15,7 +15,7 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_client_primitives::types::{
-    Error, GetBlock, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
+    Error, GetBlock, GetBlockHeader, GetBlockError, GetBlockProof, GetBlockProofError, GetBlockProofResponse,
     GetBlockWithMerkleTree, GetChunkError, GetExecutionOutcome, GetExecutionOutcomeError,
     GetExecutionOutcomesForBlock, GetGasPrice, GetGasPriceError, GetMaintenanceWindows,
     GetMaintenanceWindowsError, GetNextLightClientBlockError, GetProtocolConfig,
@@ -53,7 +53,7 @@ use near_primitives::types::{
 };
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
+    BlockView, BlockHeaderView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
     FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
     LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
     SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
@@ -659,6 +659,20 @@ impl Handler<WithSpanContext<Query>> for ViewClientActor {
         tracing::debug!(target: "client", ?msg);
         let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["Query"]).start_timer();
         self.handle_query(msg)
+    }
+}
+
+impl Handler<WithSpanContext<GetBlockHeader>> for ViewClientActor {
+    type Result = Result<BlockHeaderView, GetBlockError>;
+
+    #[perf]
+    fn handle(&mut self, msg: WithSpanContext<GetBlockHeader>, _: &mut Self::Context) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetBlockHeader"]).start_timer();
+        let header = self.get_block_header_by_reference(&msg.0)?.ok_or(GetBlockError::NotSyncedYet)?;
+        Ok(header.into())
     }
 }
 

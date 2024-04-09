@@ -14,7 +14,7 @@ use near_async::messaging::{
 };
 use near_chain_configs::GenesisConfig;
 use near_client::{
-    DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
+    DebugStatus, GetBlock, GetBlockHeader, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
     GetGasPrice, GetMaintenanceWindows, GetNetworkInfo, GetNextLightClientBlock, GetProtocolConfig,
     GetReceipt, GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
     ProcessTxRequest, ProcessTxResponse, Query, Status, TxStatus,
@@ -244,6 +244,7 @@ pub struct ClientSenderForRpc(
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ViewClientSenderForRpc(
     AsyncSender<GetBlock, ActixResult<GetBlock>>,
+    AsyncSender<GetBlockHeader, ActixResult<GetBlockHeader>>,
     AsyncSender<GetBlockProof, ActixResult<GetBlockProof>>,
     AsyncSender<GetChunk, ActixResult<GetChunk>>,
     AsyncSender<GetExecutionOutcome, ActixResult<GetExecutionOutcome>>,
@@ -362,6 +363,7 @@ impl JsonRpcHandler {
         Ok(match request.method.as_ref() {
             // Handlers ordered alphabetically
             "block" => process_method_call(request, |params| self.block(params)).await,
+            "block_header" => process_method_call(request, |params| self.block_header(params)).await,
             "broadcast_tx_async" => {
                 process_method_call(request, |params| async {
                     let tx = self.send_tx_async(params).await.to_string();
@@ -891,6 +893,17 @@ impl JsonRpcHandler {
     > {
         let block_view = self.view_client_send(GetBlock(request_data.block_reference)).await?;
         Ok(near_jsonrpc_primitives::types::blocks::RpcBlockResponse { block_view })
+    }
+
+    async fn block_header(
+        &self,
+        request_data: near_jsonrpc_primitives::types::blocks::RpcBlockRequest,
+    ) -> Result<
+        near_jsonrpc_primitives::types::blocks::RpcBlockHeaderResponse,
+        near_jsonrpc_primitives::types::blocks::RpcBlockError,
+    > {
+        let header_view = self.view_client_send(GetBlockHeader(request_data.block_reference)).await?;
+        Ok(near_jsonrpc_primitives::types::blocks::RpcBlockHeaderResponse { header_view })
     }
 
     async fn chunk(
