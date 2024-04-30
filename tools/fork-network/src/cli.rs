@@ -337,6 +337,18 @@ impl ForkNetworkCommand {
         for (shard_id, state_root) in state_roots.iter() {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_id), state_root)?;
         }
+        for col in DBCol::iter() {
+            match col {
+                DBCol::DbVersion
+                | DBCol::Misc
+                | DBCol::State
+                | DBCol::FlatState
+                | DBCol::EpochInfo
+                | DBCol::FlatStorageStatus
+                | DBCol::ChunkExtra => {}
+                _ => store_update.delete_all(col),
+            }
+        }
         store_update.commit()?;
         Ok(())
     }
