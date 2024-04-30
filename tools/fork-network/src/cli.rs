@@ -293,6 +293,18 @@ impl ForkNetworkCommand {
                 state_root,
             )?;
         }
+        for col in DBCol::iter() {
+            match col {
+                DBCol::DbVersion
+                | DBCol::Misc
+                | DBCol::State
+                | DBCol::FlatState
+                | DBCol::EpochInfo
+                | DBCol::FlatStorageStatus
+                | DBCol::ChunkExtra => {}
+                _ => store_update.delete_all(col),
+            }
+        }
         store_update.commit()?;
         Ok(())
     }
