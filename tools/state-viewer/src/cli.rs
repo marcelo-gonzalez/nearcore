@@ -98,6 +98,7 @@ pub enum StateViewerSubCommand {
     /// Print observed ChunkStateWitnesses at the given block height (and shard id).
     /// Observed witnesses are only saved when `save_latest_witnesses` is set to true in config.json.
     LatestWitnesses(LatestWitnessesCmd),
+    ShowAccountTxs(ShowAccountTxsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -156,6 +157,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::LatestWitnesses(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::ShowAccountTxs(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -741,6 +743,39 @@ impl clap::ValueEnum for RecordType {
                 Some(clap::builder::PossibleValue::new("promise-yield-receipt"))
             }
         }
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ShowAccountTxsCmd {
+    #[clap(long)]
+    start_height: u64,
+    #[clap(long)]
+    end_height: u64,
+    #[clap(long)]
+    account_id: String,
+    #[clap(long)]
+    partial_match: bool,
+    #[clap(long)]
+    no_signer: bool,
+    #[clap(long)]
+    no_receiver: bool,
+}
+
+impl ShowAccountTxsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        show_account_txs(
+            home_dir,
+            near_config,
+            store,
+            self.start_height,
+            self.end_height,
+            self.account_id.parse().unwrap(),
+            self.partial_match,
+            !self.no_signer,
+            !self.no_receiver,
+        )
+        .unwrap();
     }
 }
 
