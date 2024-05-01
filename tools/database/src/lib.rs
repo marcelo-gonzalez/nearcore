@@ -8,6 +8,7 @@ mod block_iterators;
 pub mod commands;
 mod compact;
 mod corrupt;
+mod drop_columns;
 mod make_snapshot;
 mod memtrie;
 mod resharding_v2;

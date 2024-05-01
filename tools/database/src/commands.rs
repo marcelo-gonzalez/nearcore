@@ -6,6 +6,7 @@ use crate::analyze_contract_sizes::AnalyzeContractSizesCommand;
 use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
 use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
+use crate::drop_columns::DropColumnsCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::resharding_v2::ReshardingV2Command;
@@ -64,6 +65,7 @@ enum SubCommand {
 
     /// Perform on demand resharding V2
     Resharding(ReshardingV2Command),
+    DropColumns(DropColumnsCommand),
 }
 
 impl DatabaseCommand {
@@ -93,6 +95,7 @@ impl DatabaseCommand {
                 let near_config = load_config(home, genesis_validation);
                 cmd.run(near_config, home)
             }
+            SubCommand::DropColumns(cmd) => cmd.run(home),
         }
     }
 }
