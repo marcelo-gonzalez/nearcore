@@ -3,6 +3,7 @@ use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
 use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
+use crate::drop_columns::DropColumnsCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::run_migrations::RunMigrationsCommand;
@@ -50,6 +51,7 @@ enum SubCommand {
 
     /// Write CryptoHash to DB
     WriteCryptoHash(WriteCryptoHashCommand),
+    DropColumns(DropColumnsCommand),
 }
 
 impl DatabaseCommand {
@@ -79,6 +81,7 @@ impl DatabaseCommand {
                 cmd.run(near_config, home)
             }
             SubCommand::WriteCryptoHash(cmd) => cmd.run(home),
+            SubCommand::DropColumns(cmd) => cmd.run(home),
         }
     }
 }
