@@ -1456,6 +1456,59 @@ fn account_matches(
     }
 }
 
+pub(crate) fn view_account(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    height: Option<BlockHeight>,
+    account_id: AccountId,
+) -> anyhow::Result<()> {
+    use near_primitives::views::{
+        QueryRequest, QueryResponseKind,
+    };
+
+    let chain = ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+    let runtime =
+        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+            .context("could not create the transaction runtime")?;
+
+    let header = match height {
+        Some(height) => chain.get_block_header_by_height(height)?,
+        None => {
+            let head = chain.head()?;
+            chain.get_block_header(&head.last_block_hash)?
+        }
+    };
+
+    let shard_id = epoch_manager
+        .account_id_to_shard_id(&account_id, header.epoch_id())?;
+    let shard_uid =
+        epoch_manager.shard_id_to_uid(shard_id, header.epoch_id())?;
+    let chunk_extra = chain.get_chunk_extra(header.hash(), &shard_uid)?;
+    match runtime
+        .query(
+            shard_uid,
+            chunk_extra.state_root(),
+            header.height(),
+            header.raw_timestamp(),
+            header.prev_hash(),
+            header.hash(),
+            header.epoch_id(),
+            &QueryRequest::ViewAccessKeyList { account_id: account_id.clone() },
+        )?
+        .kind
+    {
+        QueryResponseKind::AccessKeyList(l) => {
+            for k in l.keys {
+                println!("{:?}", k);
+            }
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
 pub(crate) fn show_account_txs(
     _home_dir: &Path,
     near_config: NearConfig,
