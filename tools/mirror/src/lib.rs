@@ -1598,6 +1598,7 @@ impl<T: ChainAccess> TxMirror<T> {
         }
 
         let next_batch_time = tracker.next_batch_time();
+        tracing::info!("asdf queue txs next batch in {:?}", next_batch_time - std::time::Instant::now());
 
         loop {
             let (next_height, create_account_height) =
@@ -1683,6 +1684,7 @@ impl<T: ChainAccess> TxMirror<T> {
             tokio::select! {
                 // time to send a batch of transactions
                 mapped_block = tracker.next_batch(&self.target_view_client, &self.db), if tracker.num_blocks_queued() > 0 => {
+                    tracing::info!("asdf next batch");
                     let mut mapped_block = mapped_block?;
                     source_hash = mapped_block.source_hash;
                     self.send_transactions(mapped_block.chunks.iter_mut().flat_map(|c| c.txs.iter_mut())).await?;
@@ -1694,6 +1696,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     self.queue_txs(&mut tracker, target_head, true).await?;
                 }
                 msg = self.target_stream.recv() => {
+                    tracing::info!("asdf target block");
                     let msg = msg.unwrap();
                     target_head = msg.block.header.hash;
                     target_height = msg.block.header.height;
@@ -1703,6 +1706,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.
                 _ = tokio::time::sleep(std::time::Duration::from_millis(200)), if tracker.num_blocks_queued() == 0 => {
+                    tracing::info!("asdf nothing");
                     self.queue_txs(&mut tracker, target_head, true).await?;
                 }
             };

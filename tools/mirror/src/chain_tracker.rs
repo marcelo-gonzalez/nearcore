@@ -470,6 +470,7 @@ impl TxTracker {
         target_view_client: &Addr<ViewClientActor>,
         db: &DB,
     ) -> anyhow::Result<MappedBlock> {
+        tracing::info!("asdf call next batch");
         // sleep until 20 milliseconds before we want to send transactions before we check for nonces
         // in the target chain. In the second or so between now and then, we might process another block
         // that will set the nonces.
@@ -477,6 +478,7 @@ impl TxTracker {
             self.send_time.as_ref().deadline() - std::time::Duration::from_millis(20),
         )
         .await;
+        tracing::info!("asdf call next batch waited");
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
             for tx in c.txs.iter_mut() {
@@ -537,6 +539,7 @@ impl TxTracker {
             }
         }
         (&mut self.send_time).await;
+        tracing::info!("asdf call next batch waited again");
         Ok(self.queued_blocks.pop_front().unwrap())
     }
 
