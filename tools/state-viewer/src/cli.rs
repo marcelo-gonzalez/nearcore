@@ -95,6 +95,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    ViewAccount(ViewAccountCmd),
     /// Print observed ChunkStateWitnesses at the given block height (and shard id).
     /// Observed witnesses are only saved when `save_latest_witnesses` is set to true in config.json.
     LatestWitnesses(LatestWitnessesCmd),
@@ -158,6 +159,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::LatestWitnesses(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ShowAccountTxs(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ViewAccount(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -774,6 +776,27 @@ impl ShowAccountTxsCmd {
             self.partial_match,
             !self.no_signer,
             !self.no_receiver,
+        )
+        .unwrap();
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ViewAccountCmd {
+    #[clap(long)]
+    height: Option<u64>,
+    #[clap(long)]
+    account_id: String,
+}
+
+impl ViewAccountCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        view_account(
+            home_dir,
+            near_config,
+            store,
+            self.height,
+            self.account_id.parse().unwrap(),
         )
         .unwrap();
     }
