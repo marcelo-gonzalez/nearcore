@@ -53,6 +53,7 @@ impl<'a> GenesisValidator<'a> {
     pub fn process_record(&mut self, record: &StateRecord) {
         match record {
             StateRecord::Account { account_id, account } => {
+                tracing::info!("found account {} {}", account_id, account.amount());
                 if self.account_ids.contains(account_id) {
                     let error_message =
                         format!("Duplicate account id {} in genesis records", account_id);
@@ -64,7 +65,8 @@ impl<'a> GenesisValidator<'a> {
                     self.staked_accounts.insert(account_id.clone(), account.locked());
                 }
             }
-            StateRecord::AccessKey { account_id, .. } => {
+            StateRecord::AccessKey { account_id, public_key, .. } => {
+                tracing::info!("found access key {} {}", account_id, public_key);
                 self.access_key_account_ids.insert(account_id.clone());
             }
             StateRecord::Contract { account_id, .. } => {

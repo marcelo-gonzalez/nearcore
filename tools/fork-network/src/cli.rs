@@ -535,6 +535,7 @@ impl ForkNetworkCommand {
                         }
                         let new_account_id = map_account(&account_id, None);
                         let replacement = map_key(&public_key, None);
+                        tracing::info!("asdf first pass key {} {} -> {} {}", &account_id, &public_key, &new_account_id, replacement.public_key());
                         storage_mutator.delete_access_key(account_id, public_key)?;
                         storage_mutator.set_access_key(
                             new_account_id,
@@ -548,6 +549,7 @@ impl ForkNetworkCommand {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
                         if account_id.get_account_type() == AccountType::NearImplicitAccount {
                             let new_account_id = map_account(&account_id, None);
+                            tracing::info!("asdf first pass account {} -> {}", &account_id, &new_account_id);
                             storage_mutator.delete_account(account_id)?;
                             storage_mutator.set_account(new_account_id, account)?;
                             accounts_implicit_updated += 1;
@@ -652,6 +654,7 @@ impl ForkNetworkCommand {
                             continue;
                         }
                     };
+                    tracing::info!("asdf second pass account {}", &account_id);
                     if has_full_key.contains(&account_id) {
                         continue;
                     }
