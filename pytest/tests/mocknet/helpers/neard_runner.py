@@ -98,6 +98,10 @@ class RpcServer(http.server.HTTPServer):
         self.neard_runner = neard_runner
         super().__init__(addr, JSONHandler)
 
+def statelessnet_account_id():
+    h = socket.gethostname()
+    suffix = h.split('-')[-1]
+    return f'stateless-node-{suffix}.near'
 
 class TestState(Enum):
     NONE = 1
@@ -358,7 +362,7 @@ class NeardRunner:
         ]
         if not self.is_traffic_generator():
             if validator_id is None:
-                validator_id = f'{socket.gethostname()}.near'
+                validator_id = statelessnet_account_id()
             cmd += ['--account-id', validator_id]
         else:
             if validator_id is not None:
@@ -974,7 +978,7 @@ class NeardRunner:
                 '--validators',
                 self.home_path('validators.json'),
                 '--chain-id',
-                'mocknet',
+                'statelessnet',
                 '--transaction-validity-period',
                 '10000',
                 '--epoch-length',
@@ -1072,6 +1076,8 @@ class NeardRunner:
                     # One way to fix that would be to increase everybody's balances in
                     # the amend-genesis command. But we can also just make this change here.
                     genesis_config['min_gas_price'] = 10000000
+                    genesis_config['max_inflation_rate'] = [1, 20]
+                    genesis_config['gas_limit'] = 10000000000000000
                     # protocol_versions in range [56, 63] need to have these
                     # genesis parameters, otherwise nodes get stuck because at
                     # some point it produces an incompatible EpochInfo.

@@ -627,4 +627,6 @@ if __name__ == '__main__':
         if node.want_neard_runner:
             wanted_nodes.append(node)
 
+    # print([n.name() for n in wanted_nodes])
+    # exit()
     args.func(args, traffic_generator, wanted_nodes)
