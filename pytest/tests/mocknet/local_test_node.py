@@ -276,10 +276,13 @@ def fork_db(neard_binary_path, target_home_dir, setup_dir):
 
 
 def make_forked_network(neard_binary_path, traffic_generator_setup, node_homes,
-                        source_home_dir, target_home_dir):
+                        source_home_dir, target_home_dir, unchanged_home_dir):
     for setup_dir in [h / '.near/setup' for h in node_homes
                      ] + [traffic_generator_setup]:
-        fork_db(neard_binary_path, target_home_dir, setup_dir)
+        if unchanged_home_dir:
+            copy_source_home(target_home_dir, setup_dir)
+        else:
+            fork_db(neard_binary_path, target_home_dir, setup_dir)
 
 
 def mkdirs(local_mocknet_path):
@@ -453,7 +456,7 @@ def local_test_setup_cmd(args):
         copy_source_home(source_home_dir, source_dir)
         target_home_dir = pathlib.Path(args.target_home_dir)
         make_forked_network(neard_binary_path, setup_dir, node_homes,
-                            source_home_dir, target_home_dir)
+                            source_home_dir, target_home_dir, args.unchanged_home_dir)
     # now set up an HTTP server to serve the binary that each neard_runner.py will request
     binaries_path = make_binaries_dir(local_mocknet_path, neard_binary_path)
     binaries_server_addr = 'localhost'
@@ -538,6 +541,11 @@ if __name__ == '__main__':
                                          type=str,
                                          help='''
     todo
+    ''')
+    local_test_setup_parser.add_argument('--unchanged-home-dir',
+                                         action='store_true',
+                                         help='''
+    dont change anything in home dir
     ''')
     local_test_setup_parser.set_defaults(func=local_test_setup_cmd)
 
