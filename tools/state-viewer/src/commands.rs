@@ -877,6 +877,7 @@ pub(crate) fn print_epoch_info(
     epoch_selection: epoch_info::EpochSelection,
     validator_account_id: Option<AccountId>,
     kickouts_summary: bool,
+    validator_summary: bool,
     near_config: NearConfig,
     store: Store,
 ) {
@@ -892,6 +893,7 @@ pub(crate) fn print_epoch_info(
         epoch_selection,
         validator_account_id,
         kickouts_summary,
+        validator_summary,
         store,
         &mut chain_store,
         &epoch_manager,

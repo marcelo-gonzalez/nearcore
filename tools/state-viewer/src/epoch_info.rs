@@ -9,6 +9,7 @@ use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, EpochHeight, EpochId, ProtocolVersion, ShardId};
 use near_store::{DBCol, Store};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -34,6 +35,7 @@ pub(crate) fn print_epoch_info(
     epoch_selection: EpochSelection,
     validator_account_id: Option<AccountId>,
     kickouts_summary: bool,
+    validator_summary: bool,
     store: Store,
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
@@ -54,7 +56,9 @@ pub(crate) fn print_epoch_info(
     for (epoch_id, epoch_info) in &epoch_infos {
         println!("-------------------------");
         println!("EpochId: {}", epoch_id.0);
-        if kickouts_summary {
+        if validator_summary {
+            display_validators(epoch_info).unwrap();
+        } else if kickouts_summary {
             display_kickouts(epoch_info);
         } else {
             if let Err(err) = display_epoch_info(
@@ -222,6 +226,42 @@ pub(crate) fn iterate_and_filter(
             }
         })
         .collect()
+}
+
+fn display_validators(epoch_info: &EpochInfo) -> anyhow::Result<()> {
+    let mut total_stake = 0;
+
+    let mut validators = HashMap::new();
+
+    for v in epoch_info.validators_iter() {
+        validators.insert(v.account_id().clone(), (v.stake(), false, false));
+        total_stake += v.stake();
+    }
+    for v in epoch_info.block_producers_settlement() {
+        let account_id = epoch_info.validator_account_id(*v).clone();
+        let s = validators.get_mut(&account_id).unwrap();
+        s.1 = true;
+    }
+    for vals in epoch_info.chunk_producers_settlement() {
+        for v in vals.iter() {
+        let account_id = epoch_info.validator_account_id(*v).clone();
+        let s = validators.get_mut(&account_id).unwrap();
+        s.2 = true;
+        }
+    }
+
+    let mut stakes = HashMap::<(bool, bool), u128>::new();
+
+    for (v, (stake, bp, cp)) in validators.iter() {
+        println!("{} {} {} {}", v, stake, bp, cp);
+        let s = stakes.entry((*bp, *cp)).or_default();
+        *s += stake;
+    }
+    println!("total stake: {}", total_stake);
+    for ((bp, cp), stake) in stakes {
+        println!("{} {} : {}", bp, cp, stake);
+    }
+    Ok(())
 }
 
 fn display_kickouts(epoch_info: &EpochInfo) {

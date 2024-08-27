@@ -486,6 +486,8 @@ pub struct EpochInfoCmd {
     /// Show only information about kickouts.
     #[clap(long)]
     kickouts_summary: bool,
+    #[clap(long)]
+    validators_summary: bool,
 }
 
 impl EpochInfoCmd {
@@ -494,6 +496,7 @@ impl EpochInfoCmd {
             self.epoch_selection,
             self.validator_account_id.map(|s| AccountId::from_str(&s).unwrap()),
             self.kickouts_summary,
+            self.validators_summary,
             near_config,
             store,
         );
