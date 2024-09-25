@@ -205,7 +205,7 @@ impl AllEpochConfig {
         // the codepaths for state sync more often.
         // TODO(#11201): When stabilizing "ShuffleShardAssignments" in mainnet,
         // also remove this temporary code and always rely on ShuffleShardAssignments.
-        config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
+        config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = false;
     }
 
     /// Configures validator-selection related features.
