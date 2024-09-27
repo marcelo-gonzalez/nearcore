@@ -361,6 +361,9 @@ impl TxTracker {
         tx_block_queue: &'a mut VecDeque<MappedBlock>,
         tx_ref: &TxRef,
     ) -> &'a mut TargetChainTx {
+        tracing::debug!(
+            target: "mirror", ?tx_ref, first_block = ?tx_block_queue.front().map(|b| b.source_height), last_block = ?tx_block_queue.back().map(|b| b.source_height), "get_tx()"
+        );
         let block_idx = tx_block_queue
             .binary_search_by(|b| b.source_height.cmp(&tx_ref.source_height))
             .unwrap();
@@ -428,6 +431,7 @@ impl TxTracker {
                     TxRef { source_height: block.source_height, shard_id: c.shard_id, tx_idx };
                 match tx {
                     crate::TargetChainTx::Ready(tx) => {
+                        tracing::debug!(target: "mirror", ?tx_ref, "queue_txs insert into queued_txs");
                         let info = me
                             .nonces
                             .get_mut(&(
@@ -441,6 +445,7 @@ impl TxTracker {
                         }
                     }
                     crate::TargetChainTx::AwaitingNonce(tx) => {
+                        tracing::debug!(target: "mirror", ?tx_ref, "queue_txs insert into txs_awaiting_nonce");
                         let info = me
                             .nonces
                             .get_mut(&(
@@ -662,6 +667,10 @@ impl TxTracker {
         updated_key: UpdatedKey,
         mut nonce: Option<Nonce>,
     ) -> anyhow::Result<()> {
+        tracing::debug!(
+            target: "mirror", account_id = %&updated_key.account_id, public_key = %&updated_key.public_key, ?nonce,
+            "trying to set nonces"
+        );
         let mut n = crate::read_target_nonce(db, &updated_key.account_id, &updated_key.public_key)?
             .unwrap();
         n.pending_outcomes.remove(&updated_key.id);
@@ -680,6 +689,10 @@ impl TxTracker {
             if !txs_awaiting_nonce.is_empty() {
                 let mut tx_block_queue = tx_block_queue.lock().unwrap();
                 for r in txs_awaiting_nonce.iter() {
+                    tracing::debug!(
+                        target: "mirror", account_id = %&updated_key.account_id, public_key = %&updated_key.public_key, ?nonce, tx_ref = ?r,
+                        "try_set_nonces try to set nonce"
+                    );
                     let tx = Self::get_tx(&mut tx_block_queue, r);
 
                     match tx {
@@ -711,6 +724,7 @@ impl TxTracker {
 
             let info = self.nonces.get_mut(&access_key).unwrap();
             for r in to_remove.iter() {
+                tracing::debug!(target: "mirror", tx_ref = ?r, "try_set_nonces remove from txs_awaiting_nonce");
                 info.txs_awaiting_nonce.remove(r);
             }
             info.target_nonce.nonce = std::cmp::max(info.target_nonce.nonce, nonce);
@@ -824,6 +838,7 @@ impl TxTracker {
         db: &DB,
         msg: StreamerMessage,
     ) -> anyhow::Result<TargetBlockInfo> {
+        tracing::debug!(target: "mirror", height = %msg.block.header.height, "checking txs and receipts in target chain block");
         self.record_block_timestamp(&msg);
         self.log_target_block(&msg);
 
@@ -1063,6 +1078,7 @@ impl TxTracker {
 
                     let info = self.nonces.get_mut(&access_key).unwrap();
                     for r in to_remove.iter() {
+                        tracing::info!(target: "mirror", tx_ref = ?r, "on_tx_skipped remove from txs_awaiting_nonce");
                         info.txs_awaiting_nonce.remove(r);
                     }
 
@@ -1096,10 +1112,12 @@ impl TxTracker {
 
         let (txs_sent, provenance) = match sent_batch {
             SentBatch::MappedBlock(b) => {
+                tracing::debug!(target: "mirror", height = %b.source_height, "on_txs_sent");
                 self.height_popped = Some(b.source_height);
                 for (tx_ref, tx) in b.txs.iter() {
                     match tx {
                         TargetChainTx::AwaitingNonce(t) => {
+                            tracing::debug!(target: "mirror", ?tx_ref, "on_txs_sent remove from txs_awaiting_nonce");
                             self.nonces
                                 .get_mut(&(
                                     t.target_tx.signer_id().clone(),

@@ -1848,6 +1848,7 @@ impl<T: ChainAccess> TxMirror<T> {
                         let mut tx_block_queue = tx_block_queue.lock().unwrap();
                         let b = tx_block_queue.pop_front().unwrap();
                         assert!(b.source_height == tx_batch.source_height);
+                        tracing::debug!(target: "mirror", height=%b.source_height, "popped source block");
                     };
                     let target_height = *target_height.read().unwrap();
                     let new_delay = tracker.on_txs_sent(
