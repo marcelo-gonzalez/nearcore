@@ -325,6 +325,19 @@ async fn upload_state_header(
     }
 }
 
+async fn upload_test_file(external: &ExternalConnection) {
+    match external.put_file(StateFileType::StateHeader, b"test123", 0, "testdata/test").await {
+        Err(err) => {
+            eprintln!("Failed to put test to s3. {:?}", &err);
+            tracing::warn!(target: "state_sync_dump", ?err, "Failed to put test to s3.");
+        }
+        Ok(_) => {
+            tracing::warn!(target: "state_sync_dump", "put test to s3.");
+            eprintln!("put test to s3.");
+        }
+    }
+}
+
 const FAILURES_ALLOWED_PER_ITERATION: u32 = 10;
 
 async fn state_sync_dump(
@@ -342,6 +355,8 @@ async fn state_sync_dump(
     keep_running: Arc<AtomicBool>,
 ) {
     tracing::info!(target: "state_sync_dump", shard_id, "Running StateSyncDump loop");
+
+    upload_test_file(&external).await;
 
     if restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
