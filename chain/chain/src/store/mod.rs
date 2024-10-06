@@ -2238,6 +2238,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
+        let _span = tracing::debug_span!(target: "store", "ChainStoreUpdate::finalize").entered();
         let mut store_update = self.store().store_update();
         {
             let _span = tracing::trace_span!(target: "store", "write_col_misc").entered();
@@ -2585,6 +2586,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
     #[tracing::instrument(level = "debug", target = "store", "ChainStoreUpdate::commit", skip_all)]
     pub fn commit(mut self) -> Result<(), Error> {
+        let _span = tracing::debug_span!(target: "store", "ChainStoreUpdate::commit").entered();
         let store_update = self.finalize()?;
         store_update.commit()?;
         let ChainStoreCacheUpdate {

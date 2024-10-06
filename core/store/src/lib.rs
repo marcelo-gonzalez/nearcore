@@ -719,7 +719,10 @@ impl StoreUpdate {
                 }
             }
         }
-        self.storage.write(self.transaction)
+        {
+            let _span = tracing::debug_span!(target: "store", "rocksdb_write").entered();
+            self.storage.write(self.transaction)
+        }
     }
 }
 

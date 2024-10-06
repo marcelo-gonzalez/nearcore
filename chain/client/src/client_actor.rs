@@ -1321,6 +1321,7 @@ impl ClientActorInner {
         let signer = self.client.validator_signer.get();
         let approvals = self.client.doomslug.process_timer(&signer);
 
+        tracing::debug!(target: "client", "try_doomslug_timer start store update");
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
         let mut chain_store_update = self.client.chain.mut_chain_store().store_update();
@@ -1329,6 +1330,7 @@ impl ClientActorInner {
 
         match chain_store_update.commit() {
             Ok(_) => {
+                tracing::debug!(target: "client", "try_doomslug_timer committed");
                 let head = unwrap_or_return!(self.client.chain.head());
                 if self.client.is_validator(&head.epoch_id, &head.last_block_hash, &signer)
                     || self.client.is_validator(&head.next_epoch_id, &head.last_block_hash, &signer)
