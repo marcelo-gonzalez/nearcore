@@ -121,6 +121,8 @@ pub enum StateViewerSubCommand {
     /// Tools for printing and recalculating the congestion information.
     #[clap(subcommand)]
     CongestionControl(CongestionControlCmd),
+    /// show block/chunk production
+    Validators(ValidatorsCmd),
 }
 
 impl StateViewerSubCommand {
@@ -178,6 +180,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::Validators(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
@@ -958,5 +961,18 @@ fn initialize_write_store(temperature: SaveTrieTemperature, node_storage: NodeSt
         SaveTrieTemperature::Cold => node_storage
             .get_recovery_store()
             .expect("recovery store must be present if explicitly requested"),
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ValidatorsCmd {
+    #[clap(long)]
+    height: u64,
+    shard_id: Option<u64>,
+}
+
+impl ValidatorsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        validators(self.height, self.shard_id, home_dir, near_config, store).unwrap();
     }
 }
