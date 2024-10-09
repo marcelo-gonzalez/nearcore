@@ -2218,8 +2218,9 @@ impl Handler<ChunkStateWitnessMessage> for ClientActorInner {
 impl Handler<ChunkEndorsementMessage> for ClientActorInner {
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) {
+        tracing::warn!("xxxxxxxxxxxxx recv ChunkEndorsementMessage {}", msg.0.debug_str());
         if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
+            tracing::error!(target: "client", ?err, "xxxxxxxxxxxxx Error processing chunk endorsement");
         }
     }
 }

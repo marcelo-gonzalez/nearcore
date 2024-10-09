@@ -82,6 +82,7 @@ pub fn validate_chunk_endorsement(
     }
 
     if !epoch_manager.verify_chunk_endorsement_signature(endorsement)? {
+        tracing::info!(target: "client", "xxxxxxxxxxxxx v2 verify_chunk_endorsement_signature bad {:?} ", endorsement);
         return Err(Error::InvalidChunkEndorsement);
     }
 
@@ -112,7 +113,7 @@ fn validate_chunk_production_key(
         tracing::error!(
             target: "stateless_validation",
             ?chunk_production_key,
-            "ShardId is not in the shard layout of the epoch",
+            "xxxxxxxxxxxxx ShardId is not in the shard layout of the epoch",
         );
         return Err(Error::InvalidShardId(shard_id));
     }
@@ -122,6 +123,7 @@ fn validate_chunk_production_key(
     let chunk_validator_assignments =
         epoch_manager.get_chunk_validator_assignments(&epoch_id, shard_id, height_created)?;
     if !chunk_validator_assignments.contains(account_id) {
+        tracing::info!(target: "client", "xxxxxxxxxxxxx v2 validate_chunk_production_key not in val set {} {} {} ", account_id, shard_id, height_created);
         return Err(Error::NotAChunkValidator);
     }
 
@@ -138,10 +140,10 @@ fn validate_chunk_production_key(
     if let Some(final_head) = final_head {
         if height_created <= final_head.height {
             tracing::debug!(
-                target: "stateless_validation",
+                target: "client",
                 ?chunk_production_key,
                 final_head_height = final_head.height,
-                "Skipping because height created is not greater than final head height",
+                "xxxxxxxxxxxxx v2 Skipping because height created is not greater than final head height",
             );
             return Ok(false);
         }
@@ -149,10 +151,10 @@ fn validate_chunk_production_key(
     if let Some(head) = head {
         if height_created > head.height + MAX_HEIGHTS_AHEAD {
             tracing::debug!(
-                target: "stateless_validation",
+                target: "client",
                 ?chunk_production_key,
                 head_height = head.height,
-                "Skipping because height created is more than {} blocks ahead of head height",
+                "xxxxxxxxxxxxx v2 Skipping because height created is more than {} blocks ahead of head height",
                 MAX_HEIGHTS_AHEAD
             );
             return Ok(false);
@@ -167,10 +169,10 @@ fn validate_chunk_production_key(
             epoch_manager.possible_epochs_of_height_around_tip(&head, height_created)?;
         if !possible_epochs.contains(&epoch_id) {
             tracing::debug!(
-                target: "stateless_validation",
+                target: "client",
                 ?chunk_production_key,
                 ?possible_epochs,
-                "Skipping because EpochId is not in the possible list of epochs",
+                "xxxxxxxxxxxxx v2 Skipping because EpochId is not in the possible list of epochs",
             );
             return Ok(false);
         }

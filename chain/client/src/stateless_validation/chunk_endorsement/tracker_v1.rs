@@ -46,9 +46,13 @@ impl ChunkEndorsementTracker {
         // the chunk header, because we may not be tracking that shard.
         match chunk_header {
             Some(chunk_header) => {
+                tracing::warn!("xxxxxxxxxxxxx v1 process_chunk_endorsement with header {} {}", &endorsement.account_id, &endorsement.chunk_hash().0);
                 self.process_chunk_endorsement_with_chunk_header(&chunk_header, endorsement)
             }
-            None => self.add_chunk_endorsement_to_pending_cache(endorsement),
+            None => {
+                tracing::warn!("xxxxxxxxxxxxx v1 process_chunk_endorsement no header {} {}", &endorsement.account_id, &endorsement.chunk_hash().0);
+                self.add_chunk_endorsement_to_pending_cache(endorsement)
+            }
         }
     }
 
@@ -149,7 +153,7 @@ impl ChunkEndorsementTrackerInner {
         if existing_entry.is_some_and(|(_, existing_endorsements)| {
             existing_endorsements.contains_key(account_id)
         }) {
-            tracing::debug!(target: "client", ?endorsement, "Already received chunk endorsement.");
+            tracing::warn!(target: "client", ?endorsement, "xxxxxxxxxxxxx v1 Already received chunk endorsement.");
             return Ok(());
         }
 
@@ -159,11 +163,12 @@ impl ChunkEndorsementTrackerInner {
         // for 100 unique chunks thus pushing out current valid endorsements from our cache.
         // Maybe add check to ensure we don't accept endorsements from chunks already included in some block?
         // Maybe add check to ensure we don't accept endorsements from chunks that have too old height_created?
-        tracing::debug!(target: "client", ?endorsement, "Received and saved chunk endorsement.");
 
         // The header might be available in the endorsement cache, even if it isn't provided.
         // In such case it should be treated as a non-pending endorsement.
         let header = chunk_header.or_else(|| existing_entry.map(|(header, _)| header));
+
+        tracing::debug!(target: "client", ?endorsement, "xxxxxxxxxxxxx v1 Received and saved chunk endorsement. have header: {}", header.is_some());
 
         if let Some(chunk_header) = header {
             if !already_validated
