@@ -1884,7 +1884,9 @@ impl Client {
                 let partial_chunk = partial_chunk.clone();
                 let mut thread_local_client = chunk_distribution.clone();
                 near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
-                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk).await {
+                    let r = thread_local_client.publish_chunk(&partial_chunk).await;
+                    tracing::info!(target: "client", "distribute chunk on network {} {}", partial_chunk.chunk_hash().0, r.is_ok());
+                    if let Err(err) = r {
                         error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
                     }
                 });

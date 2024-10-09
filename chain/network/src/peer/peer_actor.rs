@@ -409,6 +409,20 @@ impl PeerActor {
         if let (PeerStatus::Ready(conn), PeerMessage::PeersRequest(_)) = (&self.peer_status, msg) {
             conn.last_time_peer_requested.store(Some(self.clock.now()));
         }
+        match &msg {
+            PeerMessage::Block(b) => {
+                tracing::info!(target: "network", "finally send block {} {} to {}", b.header().hash(), b.header().height(), &self.peer_info);
+            }
+            PeerMessage::Routed(r) => {
+                match &r.msg.body {
+                    RoutedMessageBody::VersionedPartialEncodedChunk(c) => {
+                        tracing::info!(target: "network", "finally send chunk {} to {}", &c.chunk_hash().0, &self.peer_info);
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
         if let Some(enc) = self.encoding() {
             return self.send_message_with_encoding(msg, enc);
         }
@@ -974,10 +988,11 @@ impl PeerActor {
         clock: &time::Clock,
         network_state: &NetworkState,
         peer_id: PeerId,
+        peer_info: PeerInfo,
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        Ok(network_state.receive_routed_message(clock, peer_id, msg_hash, body).await)
+        Ok(network_state.receive_routed_message(clock, peer_id, Some(peer_info), msg_hash, body).await)
     }
 
     fn receive_message(
@@ -986,7 +1001,7 @@ impl PeerActor {
         conn: &connection::Connection,
         msg: PeerMessage,
     ) {
-        let _span = tracing::trace_span!(target: "network", "receive_message").entered();
+        let _span = tracing::info_span!(target: "network", "receive_message", %msg).entered();
         #[cfg(test)]
         let message_processed_event = {
             let sink = self.network_state.config.event_sink.clone();
@@ -1017,6 +1032,7 @@ impl PeerActor {
         let clock = self.clock.clone();
         let network_state = self.network_state.clone();
         let peer_id = conn.peer_info.id.clone();
+        let peer_info = conn.peer_info.clone();
         let handling_future = async move {
             Ok(match msg {
                 PeerMessage::Routed(msg) => {
@@ -1025,6 +1041,7 @@ impl PeerActor {
                         &clock,
                         &network_state,
                         peer_id,
+                        peer_info,
                         msg_hash,
                         msg.msg.body,
                     )
@@ -1051,6 +1068,7 @@ impl PeerActor {
                     .flatten()
                     .map(PeerMessage::BlockHeaders),
                 PeerMessage::Block(block) => {
+                    tracing::info!(target: "network", "yyyyyyyy receive block {} {} from {}", block.header().hash(), block.header().height(), &peer_info);
                     network_state
                         .client
                         .send_async(BlockResponse { block, peer_id, was_requested })

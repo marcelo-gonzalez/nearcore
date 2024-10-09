@@ -230,7 +230,7 @@ class BaseNode(object):
                           node_dir,
                           boot_node: BootNode,
                           binary_name='neard'):
-        cmd = (os.path.join(near_root, binary_name), '--home', node_dir, 'run')
+        cmd = (os.path.join(near_root, binary_name), '--home', node_dir, '--log-span-events', 'run')
         return cmd + make_boot_nodes_arg(boot_node)
 
     def get_command_for_subprogram(self, cmd: tuple):

@@ -625,7 +625,7 @@ impl NetworkState {
                 RawRoutedMessage { target: PeerIdOrHash::PeerId(peer_id.clone()), body: msg },
             );
             actix::spawn(async move {
-                this.receive_routed_message(&clock, peer_id, msg.hash(), msg.msg.body).await;
+                this.receive_routed_message(&clock, peer_id, None, msg.hash(), msg.msg.body).await;
             });
             return true;
         }
@@ -698,6 +698,7 @@ impl NetworkState {
         &self,
         clock: &time::Clock,
         peer_id: PeerId,
+        peer_info: Option<PeerInfo>,
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Option<RoutedMessageBody> {
@@ -747,6 +748,7 @@ impl NetworkState {
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
+                tracing::info!(target: "network", "yyyyyyyy receive chunk {} from {:?}", chunk.chunk_hash().0, &peer_info);
                 self.shards_manager_adapter
                     .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
                 None

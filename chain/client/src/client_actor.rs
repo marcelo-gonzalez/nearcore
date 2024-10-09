@@ -286,8 +286,8 @@ impl messaging::Actor for ClientActorInner {
         f: impl FnOnce(&mut Self, M, &mut dyn DelayedActionRunner<Self>) -> M::Result,
     ) -> M::Result {
         self.check_triggers(ctx);
-        let _span = tracing::debug_span!(target: "client", "NetworkClientMessage").entered();
         let msg_type = std::any::type_name::<M>();
+        let _span = tracing::debug_span!(target: "client", "NetworkClientMessage {}", msg_type).entered();
         metrics::CLIENT_MESSAGES_COUNT.with_label_values(&[msg_type]).inc();
         let timer =
             metrics::CLIENT_MESSAGES_PROCESSING_TIME.with_label_values(&[msg_type]).start_timer();

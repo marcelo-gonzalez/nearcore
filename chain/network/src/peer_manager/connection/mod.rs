@@ -145,6 +145,20 @@ impl Connection {
     pub fn send_message(&self, msg: Arc<PeerMessage>) {
         let msg_kind = msg.msg_variant().to_string();
         tracing::trace!(target: "network", ?msg_kind, "Send message");
+        match msg.as_ref() {
+            PeerMessage::Block(b) => {
+                tracing::info!(target: "network", "send block {} {} to {:?}", b.header().hash(), b.header().height(), &self.peer_info);
+            }
+            PeerMessage::Routed(r) => {
+                match &r.msg.body {
+                    RoutedMessageBody::VersionedPartialEncodedChunk(c) => {
+                        tracing::info!(target: "network", "send chunk {} to {:?}", &c.chunk_hash().0, &self.peer_info);
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
         self.addr.do_send(SendMessage { message: msg }.with_span_context());
     }
 

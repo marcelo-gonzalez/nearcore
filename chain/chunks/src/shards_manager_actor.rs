@@ -2083,6 +2083,7 @@ impl ShardsManagerActor {
                 );
 
             if Some(&to_whom) != me {
+                tracing::info!(target: "chunks", "ask peer manager to send chunk to {}", &to_whom);
                 self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkMessage {
                         account_id: to_whom.clone(),
