@@ -182,6 +182,7 @@ impl ChainStore {
             chain_store_update.commit()?;
         }
 
+        tracing::info!(target: "garbage_collection", "clear_data() from {} to {}", tail + 1, gc_stop_height);
         // Canonical Chain Clearing
         for height in tail + 1..gc_stop_height {
             if gc_blocks_remaining == 0 {
@@ -199,6 +200,7 @@ impl ChainStore {
             if let Some(block_hash) = blocks_current_height.first() {
                 let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
                 let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
+                tracing::info!(target: "garbage_collection", "clear_data() {} prev refcount {}", height, prev_block_refcount);
                 if prev_block_refcount > 1 {
                     // Block of `prev_hash` starts a Fork, stopping
                     break;
@@ -212,9 +214,11 @@ impl ChainStore {
                     gc_blocks_remaining -= 1;
                 } else {
                     return Err(Error::GCError(
-                        "block on canonical chain shouldn't have refcount 0".into(),
+                        format!("block {} on canonical chain shouldn't have refcount 0", &prev_hash),
                     ));
                 }
+            } else {
+                tracing::info!(target: "garbage_collection", "clear_data() {} no blocks", height);
             }
             chain_store_update.update_tail(height)?;
             chain_store_update.commit()?;
@@ -308,6 +312,7 @@ impl ChainStore {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "sync", "reset_data_pre_state_sync").entered();
+        tracing::info!(target: "sync", "reset_data_pre_state_sync start");
         let head = self.head()?;
         if head.prev_block_hash == CryptoHash::default() {
             // This is genesis. It means we are state syncing right after epoch sync. Don't clear
@@ -341,8 +346,10 @@ impl ChainStore {
         // GC all the data from current tail up to `gc_height`. In case tail points to a height where
         // there is no block, we need to make sure that the last block before tail is cleaned.
         let tail = self.chain_store().tail()?;
+        tracing::info!(target: "sync", "reset_data_pre_state_sync tail {} gc_height {}", tail, gc_height);
         let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
+            tracing::info!(target: "sync", "reset_data_pre_state_sync clear {}", height);
             let blocks_current_height = self
                 .chain_store()
                 .get_all_block_hashes_by_height(height)?
@@ -365,6 +372,7 @@ impl ChainStore {
                     }
                     tail_prev_block_cleaned = true;
                 }
+                tracing::info!(target: "sync", "reset_data_pre_state_sync clear {} {}", height, &block_hash);
                 chain_store_update.clear_block_data(
                     epoch_manager.as_ref(),
                     block_hash,
@@ -378,6 +386,7 @@ impl ChainStore {
         let mut chain_store_update = self.store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
+        tracing::info!(target: "sync", "reset_data_pre_state_sync clear chunk data");
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
         chain_store_update.commit()?;
 
@@ -386,6 +395,7 @@ impl ChainStore {
         let tries = runtime_adapter.get_tries();
         let mut chain_store_update = self.store_update();
         let mut store_update = tries.store_update();
+        tracing::info!(target: "sync", "reset_data_pre_state_sync clear state");
         store_update.delete_all(DBCol::State);
         chain_store_update.merge(store_update);
 

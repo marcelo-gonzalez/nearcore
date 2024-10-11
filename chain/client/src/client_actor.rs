@@ -1743,6 +1743,7 @@ impl ClientActorInner {
             return;
         }
         let update_sync_status_result = self.update_sync_status();
+        tracing::info!(target: "sync", "did update_sync_status");
         let notify_start_sync = unwrap_and_report_state_sync_result!(update_sync_status_result);
 
         let sync_hash = match &self.client.sync_status {
