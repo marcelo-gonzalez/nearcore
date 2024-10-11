@@ -892,7 +892,7 @@ impl PeerManagerActor {
                         shard_id,
                         part_id,
                     ) {
-                        tracing::debug!(target: "network", "requesting {sync_prev_prev_hash} {shard_id} {part_id} from {peer_id}");
+                        tracing::warn!(target: "network", "aaaaaaaaaa requesting {sync_prev_prev_hash} {shard_id} {part_id} from {peer_id}");
                         success =
                             self.state.send_message_to_peer(
                                 &self.clock,

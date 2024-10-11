@@ -599,7 +599,7 @@ impl Handler<StateResponse> for ClientActorInner {
         let hash = state_response_info.sync_hash();
         let state_response = state_response_info.take_state_response();
 
-        trace!(target: "sync", "Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
+        tracing::info!(target: "client", "aaaaaaaaaa Received state response shard_id: {} sync_hash: {:?} part(id/size): {:?}",
                shard_id,
                hash,
                state_response.part().as_ref().map(|(part_id, data)| (part_id, data.len()))

@@ -599,7 +599,7 @@ impl StateSync {
             {
                 // TODO(saketh): After we have sufficient confidence that requesting state parts
                 // from peers is working well, we will eliminate the external storage entirely.
-                let StateSyncExternal { chain_id, semaphore, external, .. } =
+                let StateSyncExternal { chain_id, semaphore, external, peer_attempts_threshold, .. } =
                     self.external.as_ref().unwrap();
                 if semaphore.available_permits() == 0 {
                     continue;
@@ -620,6 +620,7 @@ impl StateSync {
                         )
                     });
 
+                tracing::info!(target: "sync", "aaaaaaaaaa request_part_from_external_storage {} req count {} thresh {}", part_id, download.state_requests_count, peer_attempts_threshold);
                 request_part_from_external_storage(
                     part_id,
                     download,
@@ -751,7 +752,7 @@ impl StateSync {
                                 header_download.done = true;
                             }
                             Err(err) => {
-                                tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "State sync set_state_header error");
+                                tracing::error!(target: "sync", %shard_id, %sync_hash, ?err, "aaaaaaaaaa State sync set_state_header error");
                                 header_download.error = true;
                             }
                         }
@@ -760,7 +761,7 @@ impl StateSync {
                     // No header found.
                     // It may happen because requested node couldn't build state response.
                     if !header_download.done {
-                        tracing::info!(target: "sync", %shard_id, %sync_hash, "state_response doesn't have header, should be re-requested");
+                        tracing::info!(target: "sync", %shard_id, %sync_hash, "aaaaaaaaaa state_response doesn't have header, should be re-requested");
                         header_download.error = true;
                     }
                 }
@@ -770,7 +771,7 @@ impl StateSync {
                     let num_parts = shard_sync_download.downloads.len() as u64;
                     let (part_id, data) = part;
                     if part_id >= num_parts {
-                        tracing::error!(target: "sync", %shard_id, %sync_hash, part_id, "State sync received incorrect part_id, potential malicious peer");
+                        tracing::error!(target: "sync", %shard_id, %sync_hash, part_id, "aaaaaaaaaa State sync received incorrect part_id, potential malicious peer");
                         return;
                     }
                     if !shard_sync_download.downloads[part_id as usize].done {
@@ -792,7 +793,7 @@ impl StateSync {
                                     data,
                                     runtime_adapter
                                 );
-
+                                tracing::info!(target: "sync", "aaaaaaaaaa validated part {:?} {:?}", &part_id, result.as_ref().map(|_| ()));
                                 match state_parts_mpsc_tx.send(StateSyncGetFileResult {
                                     sync_hash,
                                     shard_id,
@@ -1266,6 +1267,7 @@ fn request_part_from_peers(
     download.state_requests_count += 1;
     let run_me = download.run_me.clone();
 
+    tracing::info!(target: "sync", "aaaaaaaaaa request_part_from_peers {} req count {}", part_id, download.state_requests_count);
     state_parts_future_spawner.spawn(
         "StateSync",
         network_adapter
