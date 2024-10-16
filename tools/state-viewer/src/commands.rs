@@ -28,6 +28,7 @@ use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -48,8 +49,8 @@ use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
-use std::collections::HashMap;
 use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -860,10 +861,12 @@ fn add_endorsement_stats(
     header: &BlockHeader,
     shard_id: ShardId,
     height_created: BlockHeight,
-    mut info: Option<&mut String>,
+    info: Option<&mut String>,
     endorsement_stats: &mut HashMap<AccountId, (usize, usize)>,
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
+    let mut info = info.map(|info| (Vec::<(AccountId, bool)>::new(), info));
+
     let Some(endorsements) = header.chunk_endorsements() else {
         if !warnings.warned_no_endorsements {
             tracing::error!("no endorsements found in block header #{}", header.height());
@@ -884,8 +887,8 @@ fn add_endorsement_stats(
         }
         return Ok(());
     }
-    if let Some(info) = info.as_mut() {
-        **info += &format!(" ENDORSEMENTS: |");
+    if let Some((_stats, info_str)) = info.as_mut() {
+        **info_str += &format!(" ENDORSEMENTS: |");
     }
     if endorsements.len(shard_id).unwrap() < assignments.len() {
         if !warnings.warned_bad_length {
@@ -903,18 +906,24 @@ fn add_endorsement_stats(
             break;
         }
         let validator_id = &assignments[i].0;
-        if let Some(info) = info.as_mut() {
-            if has_endorsement {
-                **info += &format!(" {} YES |", validator_id);
-            } else {
-                **info += &format!(" {} NO |", validator_id);
-            }
+        if let Some((stats, _info_str)) = info.as_mut() {
+            stats.push((validator_id.clone(), has_endorsement));
         }
         let (produced, expected) = endorsement_stats.entry(validator_id.clone()).or_default();
         if has_endorsement {
             *produced += 1;
         }
         *expected += 1;
+    }
+    if let Some((stats, info_str)) = info.as_mut() {
+        stats.sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
+        for (account_id, has_endorsement) in stats.iter() {
+            if *has_endorsement {
+                **info_str += &format!(" {} YES |", account_id);
+            } else {
+                **info_str += &format!(" {} NO |", account_id);
+            }
+        }
     }
     Ok(())
 }
@@ -974,6 +983,86 @@ fn collect_validator_info(
     Ok(())
 }
 
+fn sort_validator_info<K: Ord, V>(info: HashMap<K, V>) -> Vec<(K, V)> {
+    let mut info = info.into_iter().collect::<Vec<_>>();
+    info.sort_by(|(left, _), (right, _)| left.cmp(right));
+    info
+}
+
+fn print_catchup_info(
+    epoch_manager: &EpochManagerHandle,
+    header: &BlockHeader,
+) -> anyhow::Result<()> {
+    let next_epoch_id = match epoch_manager.get_next_epoch_id(header.hash()) {
+        Ok(id) => id,
+        Err(EpochError::EpochOutOfBounds(_)) => {
+            println!("no catchup state sync info available for this epoch");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let epoch_info = epoch_manager.get_epoch_info(header.epoch_id())?;
+    let next_epoch_info = match epoch_manager.get_epoch_info(&next_epoch_id) {
+        Ok(info) => info,
+        Err(EpochError::EpochOutOfBounds(_)) => {
+            println!("no catchup state sync info available for this epoch");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let mut shard_assignments = HashMap::<AccountId, (HashSet<ShardId>, HashSet<ShardId>)>::new();
+
+    println!("THIS EPOCH CHUNK PRODUCERS:\n");
+    for (shard_id, producers) in epoch_info.chunk_producers_settlement().iter().enumerate() {
+        let mut producer_accounts = Vec::new();
+        for p in producers.iter() {
+            let account_id = epoch_info.validator_account_id(*p);
+            producer_accounts.push(account_id.as_str());
+            let (this_epoch_shards, _next_epoch_shards) =
+                shard_assignments.entry(account_id.clone()).or_default();
+            this_epoch_shards.insert(shard_id as ShardId);
+        }
+        producer_accounts.sort();
+        println!("shard {}: {:?}", shard_id, &producer_accounts);
+    }
+    println!("NEXT EPOCH CHUNK PRODUCERS:\n");
+    for (shard_id, producers) in next_epoch_info.chunk_producers_settlement().iter().enumerate() {
+        let mut producer_accounts = Vec::new();
+        for p in producers.iter() {
+            let account_id = epoch_info.validator_account_id(*p);
+            producer_accounts.push(account_id.as_str());
+            let (_this_epoch_shards, next_epoch_shards) =
+                shard_assignments.entry(account_id.clone()).or_default();
+            next_epoch_shards.insert(shard_id as ShardId);
+        }
+        producer_accounts.sort();
+        println!("shard {}: {:?}", shard_id, &producer_accounts);
+    }
+
+    let mut printed_header = false;
+    let shard_assignments = sort_validator_info(shard_assignments);
+    for (account_id, (this_epoch_shards, next_epoch_shards)) in shard_assignments.into_iter() {
+        let new_shards: Vec<_> = next_epoch_shards
+            .into_iter()
+            .filter(|shard_id| !this_epoch_shards.contains(shard_id))
+            .collect();
+        if !new_shards.is_empty() {
+            if !printed_header {
+                println!("VALIDATORS THAT NEEDED TO STATE SYNC:");
+                printed_header = true;
+            }
+            println!("{}: shards: {:?}", account_id, new_shards);
+        }
+    }
+    if !printed_header {
+        println!("NO VALIDATORS NEEDED STATE SYNC");
+    }
+    println!("");
+    Ok(())
+}
+
 fn print_validator_stats(
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
@@ -995,6 +1084,8 @@ fn print_validator_stats(
 
     let epoch_height = epoch_manager.get_epoch_info(&epoch_id)?.epoch_height();
     println!("---------- epoch {} #{} ----------", &epoch_id.0, epoch_height);
+
+    print_catchup_info(epoch_manager, block.header())?;
 
     loop {
         if height > epoch_start + near_config.genesis.config.epoch_length || height > head_height {
@@ -1041,6 +1132,7 @@ fn print_validator_stats(
     let mut total_expected = 0;
     let mut total_produced = 0;
 
+    let block_stats = sort_validator_info(block_stats);
     for (account_id, (produced, expected)) in block_stats.iter() {
         println!("{}: {}/{}", account_id, produced, expected);
         total_expected += expected;
@@ -1050,21 +1142,24 @@ fn print_validator_stats(
 
     println!("\nCHUNK STATS:\n");
 
-    for (shard_id, chunk_stats) in chunk_stats.iter() {
+    let chunk_stats = sort_validator_info(chunk_stats);
+    for (shard_id, chunk_stats) in chunk_stats.into_iter() {
         total_expected = 0;
         total_produced = 0;
         println!("\n------------ SHARD {} ------------", shard_id);
+        let chunk_stats = sort_validator_info(chunk_stats);
         for (account_id, (produced, expected)) in chunk_stats.iter() {
             println!("{}: {}/{}", account_id, produced, expected);
             total_expected += expected;
             total_produced += produced;
         }
         println!("TOTAL: {}/{}", total_produced, total_expected);
-        match endorsement_stats.get(shard_id) {
+        match endorsement_stats.remove(&shard_id) {
             Some(endorsement_stats) => {
                 total_expected = 0;
                 total_produced = 0;
                 println!("\nENDORSEMENTS:");
+                let endorsement_stats = sort_validator_info(endorsement_stats);
                 for (account_id, (produced, expected)) in endorsement_stats.iter() {
                     println!("{}: {}/{}", account_id, produced, expected);
                     total_expected += expected;
