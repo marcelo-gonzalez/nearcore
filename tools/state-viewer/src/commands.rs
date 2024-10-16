@@ -23,7 +23,7 @@ use near_chain::types::{
 };
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
 use near_primitives::block::Block;
@@ -848,31 +848,24 @@ fn read_genesis_from_store(
     Ok((genesis_block, genesis_chunks))
 }
 
-pub(crate) fn validators(
-    height: u64,
-    shard_id: Option<u64>,
-    _home_dir: &Path,
-    near_config: NearConfig,
-    store: Store,
-
+fn print_validator_stats(
+    chain_store: &ChainStore,
+    epoch_manager: &EpochManagerHandle,
+    near_config: &NearConfig,
+    block_hash: CryptoHash,
+    head_height: BlockHeight,
+    print_every_height: bool,
 ) -> anyhow::Result<()> {
-    let genesis_height = near_config.genesis.config.genesis_height;
-    let chain_store =
-        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
-    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-
-    let head = chain_store.head().unwrap().height;
-    let block_hash = chain_store.get_block_hash_by_height(height)?;
     let block = chain_store.get_block(&block_hash)?;
     let epoch_id = block.header().epoch_id().clone();
 
     let epoch_start = epoch_manager.get_epoch_start_height(&block_hash)?;
     let mut height = epoch_start;
     let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
-    let mut chunk_stats = HashMap::<ShardId, HashMap::<AccountId, (usize, usize)>>::new();
+    let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
 
     loop {
-        if height > epoch_start + near_config.genesis.config.epoch_length || height > head {
+        if height > epoch_start + near_config.genesis.config.epoch_length || height > head_height {
             break;
         }
         let p = epoch_manager.get_block_producer(&epoch_id, height)?;
@@ -890,15 +883,11 @@ pub(crate) fn validators(
                 *produced += 1;
                 let mut chunks = String::new();
                 for c in block.chunks().iter() {
-                    if let Some(shard_id) = shard_id {
-                        if shard_id != c.shard_id() {
-                            continue;
-                        }
-                    }
                     let chunk_producer =
-                    epoch_manager.get_chunk_producer(&epoch_id, height, c.shard_id())?;
+                        epoch_manager.get_chunk_producer(&epoch_id, height, c.shard_id())?;
                     let shard_stats = chunk_stats.entry(c.shard_id()).or_default();
-                    let (produced, expected) = shard_stats.entry(chunk_producer.clone()).or_default();
+                    let (produced, expected) =
+                        shard_stats.entry(chunk_producer.clone()).or_default();
                     *expected += 1;
                     if c.height_included() == block.header().height() {
                         *produced += 1;
@@ -907,11 +896,15 @@ pub(crate) fn validators(
                         chunks += &format!("BADDDD <{}> BADDDDD, ", chunk_producer);
                     }
                 }
-                println!("{}: {}: {}", height, p, chunks);
+                if print_every_height {
+                    println!("{}: {}: {}", height, p, chunks);
+                }
                 height += 1;
             }
             Err(_) => {
-                println!("{}: {}: not produced", height, p);
+                if print_every_height {
+                    println!("{}: {}: not produced", height, p);
+                }
                 height += 1;
                 continue;
             }
@@ -942,7 +935,37 @@ pub(crate) fn validators(
         }
         println!("total: {}/{}", total_produced, total_expected);
     }
+    Ok(())
+}
 
+pub(crate) fn validator_info(
+    start_height: Option<u64>,
+    end_height: Option<u64>,
+    print_every_height: bool,
+    near_config: NearConfig,
+    store: Store,
+) -> anyhow::Result<()> {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let chain_store =
+        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+
+    let head_height = chain_store.head().unwrap().height;
+    let block_hash = match end_height {
+        Some(height) => chain_store.get_block_hash_by_height(height)?,
+        None => {
+            let head = chain_store.head()?;
+            head.last_block_hash
+        }
+    };
+    print_validator_stats(
+        &chain_store,
+        &epoch_manager,
+        &near_config,
+        block_hash,
+        head_height,
+        print_every_height,
+    )?;
     Ok(())
 }
 

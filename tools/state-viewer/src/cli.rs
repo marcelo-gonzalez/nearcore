@@ -122,7 +122,7 @@ pub enum StateViewerSubCommand {
     #[clap(subcommand)]
     CongestionControl(CongestionControlCmd),
     /// show block/chunk production
-    Validators(ValidatorsCmd),
+    ValidatorInfo(ValidatorInfoCmd),
 }
 
 impl StateViewerSubCommand {
@@ -180,7 +180,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
-            StateViewerSubCommand::Validators(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ValidatorInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
@@ -965,14 +965,24 @@ fn initialize_write_store(temperature: SaveTrieTemperature, node_storage: NodeSt
 }
 
 #[derive(clap::Parser)]
-pub struct ValidatorsCmd {
+pub struct ValidatorInfoCmd {
     #[clap(long)]
-    height: u64,
-    shard_id: Option<u64>,
+    start_height: Option<u64>,
+    #[clap(long)]
+    end_height: Option<u64>,
+    #[clap(long)]
+    print_every_height: bool,
 }
 
-impl ValidatorsCmd {
-    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        validators(self.height, self.shard_id, home_dir, near_config, store).unwrap();
+impl ValidatorInfoCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        validator_info(
+            self.start_height,
+            self.end_height,
+            self.print_every_height,
+            near_config,
+            store,
+        )
+        .unwrap();
     }
 }
