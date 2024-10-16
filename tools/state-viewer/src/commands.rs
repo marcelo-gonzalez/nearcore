@@ -26,7 +26,7 @@ use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -38,7 +38,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
@@ -848,6 +848,77 @@ fn read_genesis_from_store(
     Ok((genesis_block, genesis_chunks))
 }
 
+#[derive(Default)]
+struct ValidatorInfoWarnings {
+    warned_no_endorsements: bool,
+    warned_bad_shard: bool,
+    warned_bad_length: bool,
+}
+
+fn add_endorsement_stats(
+    epoch_manager: &EpochManagerHandle,
+    header: &BlockHeader,
+    shard_id: ShardId,
+    height_created: BlockHeight,
+    mut info: Option<&mut String>,
+    endorsement_stats: &mut HashMap<AccountId, (usize, usize)>,
+    warnings: &mut ValidatorInfoWarnings,
+) -> anyhow::Result<()> {
+    let Some(endorsements) = header.chunk_endorsements() else {
+        if !warnings.warned_no_endorsements {
+            tracing::error!("no endorsements found in block header #{}", header.height());
+            warnings.warned_no_endorsements = true;
+        }
+        return Ok(());
+    };
+    let validators = epoch_manager.get_chunk_validator_assignments(
+        header.epoch_id(),
+        shard_id,
+        height_created,
+    )?;
+    let assignments = validators.assignments();
+    if endorsements.num_shards() as ShardId <= shard_id {
+        if !warnings.warned_bad_shard {
+            tracing::error!("shard ID {} not in endorsements ", shard_id);
+            warnings.warned_bad_shard = true;
+        }
+        return Ok(());
+    }
+    if let Some(info) = info.as_mut() {
+        **info += &format!(" ENDORSEMENTS: |");
+    }
+    if endorsements.len(shard_id).unwrap() < assignments.len() {
+        if !warnings.warned_bad_length {
+            tracing::error!(
+                "not enough endorsements found in block header #{} for shard {}",
+                header.height(),
+                shard_id
+            );
+            warnings.warned_bad_length = true;
+        }
+    }
+    for (i, has_endorsement) in endorsements.iter(shard_id).enumerate() {
+        if i >= assignments.len() {
+            // endorsements.iter() returns more values than actually correspond to real validators
+            break;
+        }
+        let validator_id = &assignments[i].0;
+        if let Some(info) = info.as_mut() {
+            if has_endorsement {
+                **info += &format!(" {} YES |", validator_id);
+            } else {
+                **info += &format!(" {} NO |", validator_id);
+            }
+        }
+        let (produced, expected) = endorsement_stats.entry(validator_id.clone()).or_default();
+        if has_endorsement {
+            *produced += 1;
+        }
+        *expected += 1;
+    }
+    Ok(())
+}
+
 fn print_validator_stats(
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
@@ -860,18 +931,24 @@ fn print_validator_stats(
     let epoch_id = block.header().epoch_id().clone();
 
     let epoch_start = epoch_manager.get_epoch_start_height(&block_hash)?;
+    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
     let mut height = epoch_start;
     let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
     let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
+    let mut endorsement_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
+    let mut warnings = ValidatorInfoWarnings::default();
+
+    let epoch_height = epoch_manager.get_epoch_info(&epoch_id)?.epoch_height();
+    println!("---------- epoch {} #{} ----------", &epoch_id.0, epoch_height);
 
     loop {
         if height > epoch_start + near_config.genesis.config.epoch_length || height > head_height {
             break;
         }
-        let p = epoch_manager.get_block_producer(&epoch_id, height)?;
+        let block_producer = epoch_manager.get_block_producer(&epoch_id, height)?;
 
-        let (produced, expected) = block_stats.entry(p.clone()).or_default();
-        *expected += 1;
+        let (produced_blocks, expected_blocks) =
+            block_stats.entry(block_producer.clone()).or_default();
 
         match chain_store.get_block_hash_by_height(height) {
             Ok(h) => {
@@ -880,35 +957,66 @@ fn print_validator_stats(
                     break;
                 }
 
-                *produced += 1;
-                let mut chunks =
-                    if print_every_height { Some(String::from("chunks: |")) } else { None };
-                for c in block.chunks().iter() {
-                    let chunk_producer =
-                        epoch_manager.get_chunk_producer(&epoch_id, height, c.shard_id())?;
-                    let shard_stats = chunk_stats.entry(c.shard_id()).or_default();
+                *produced_blocks += 1;
+                *expected_blocks += 1;
+                let mut info = if print_every_height {
+                    Some(format!("{}: BLOCK PRODUCER: {}: CHUNKS:\n", height, &block_producer))
+                } else {
+                    None
+                };
+                for chunk_header in block.chunks().iter() {
+                    let chunk_producer = epoch_manager.get_chunk_producer(
+                        &epoch_id,
+                        height,
+                        chunk_header.shard_id(),
+                    )?;
+                    let shard_stats = chunk_stats.entry(chunk_header.shard_id()).or_default();
                     let (produced, expected) =
                         shard_stats.entry(chunk_producer.clone()).or_default();
                     *expected += 1;
-                    if c.height_included() == block.header().height() {
-                        *produced += 1;
-                        if let Some(chunks) = &mut chunks {
-                            *chunks += &format!(" {} YES |", chunk_producer);
+                    if chunk_header.height_included() == block.header().height() {
+                        if let Some(info) = &mut info {
+                            *info += &format!(
+                                "{}: {} PRODUCED",
+                                chunk_header.shard_id(),
+                                &chunk_producer
+                            );
                         }
+                        *produced += 1;
                     } else {
-                        if let Some(chunks) = &mut chunks {
-                            *chunks += &format!(" {} NO |", chunk_producer);
+                        if let Some(info) = &mut info {
+                            *info += &format!(
+                                "{}: {} NOT PRODUCED",
+                                chunk_header.shard_id(),
+                                &chunk_producer
+                            );
                         }
                     }
+                    if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
+                        add_endorsement_stats(
+                            epoch_manager,
+                            block.header(),
+                            chunk_header.shard_id(),
+                            chunk_header.height_created(),
+                            info.as_mut(),
+                            endorsement_stats.entry(chunk_header.shard_id()).or_default(),
+                            &mut warnings,
+                        )?;
+                    }
+                    if let Some(info) = &mut info {
+                        *info += "\n";
+                    }
                 }
-                if let Some(chunks) = &chunks {
-                    println!("{}: block producer: {}: {}", height, p, chunks);
+                if let Some(info) = &info {
+                    println!("{}", info);
                 }
                 height += 1;
             }
             Err(_) => {
+                *expected_blocks += 1;
+                println!("wtf");
                 if print_every_height {
-                    println!("{}: block producer: {}: not produced", height, p);
+                    println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
                 }
                 height += 1;
                 continue;
@@ -916,7 +1024,7 @@ fn print_validator_stats(
         };
     }
 
-    println!("\nblock stats:\n");
+    println!("\nBLOCK STATS:\n");
     let mut total_expected = 0;
     let mut total_produced = 0;
 
@@ -925,20 +1033,36 @@ fn print_validator_stats(
         total_expected += expected;
         total_produced += produced;
     }
-    println!("total: {}/{}", total_produced, total_expected);
+    println!("TOTAL: {}/{}", total_produced, total_expected);
 
-    println!("\nchunk stats:\n");
+    println!("\nCHUNK STATS:\n");
 
-    for (shard_id, stats) in chunk_stats.iter() {
+    for (shard_id, chunk_stats) in chunk_stats.iter() {
         total_expected = 0;
         total_produced = 0;
-        println!("shard {}:", shard_id);
-        for (account_id, (produced, expected)) in stats.iter() {
+        println!("\n------------ SHARD {} ------------", shard_id);
+        for (account_id, (produced, expected)) in chunk_stats.iter() {
             println!("{}: {}/{}", account_id, produced, expected);
             total_expected += expected;
             total_produced += produced;
         }
-        println!("total: {}/{}", total_produced, total_expected);
+        println!("TOTAL: {}/{}", total_produced, total_expected);
+        match endorsement_stats.get(shard_id) {
+            Some(endorsement_stats) => {
+                total_expected = 0;
+                total_produced = 0;
+                println!("\nENDORSEMENTS:");
+                for (account_id, (produced, expected)) in endorsement_stats.iter() {
+                    println!("{}: {}/{}", account_id, produced, expected);
+                    total_expected += expected;
+                    total_produced += produced;
+                }
+                println!("TOTAL: {}/{}", total_produced, total_expected);
+            }
+            None => {
+                println!("no endorsement stats for this shard");
+            }
+        }
     }
     Ok(())
 }
