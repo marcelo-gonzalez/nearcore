@@ -881,7 +881,8 @@ fn print_validator_stats(
                 }
 
                 *produced += 1;
-                let mut chunks = String::new();
+                let mut chunks =
+                    if print_every_height { Some(String::from("chunks: |")) } else { None };
                 for c in block.chunks().iter() {
                     let chunk_producer =
                         epoch_manager.get_chunk_producer(&epoch_id, height, c.shard_id())?;
@@ -891,19 +892,23 @@ fn print_validator_stats(
                     *expected += 1;
                     if c.height_included() == block.header().height() {
                         *produced += 1;
-                        chunks += &format!("{}, ", chunk_producer);
+                        if let Some(chunks) = &mut chunks {
+                            *chunks += &format!(" {} YES |", chunk_producer);
+                        }
                     } else {
-                        chunks += &format!("BADDDD <{}> BADDDDD, ", chunk_producer);
+                        if let Some(chunks) = &mut chunks {
+                            *chunks += &format!(" {} NO |", chunk_producer);
+                        }
                     }
                 }
-                if print_every_height {
-                    println!("{}: {}: {}", height, p, chunks);
+                if let Some(chunks) = &chunks {
+                    println!("{}: block producer: {}: {}", height, p, chunks);
                 }
                 height += 1;
             }
             Err(_) => {
                 if print_every_height {
-                    println!("{}: {}: not produced", height, p);
+                    println!("{}: block producer: {}: not produced", height, p);
                 }
                 height += 1;
                 continue;
