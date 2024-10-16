@@ -868,11 +868,17 @@ pub(crate) fn validators(
 
     let epoch_start = epoch_manager.get_epoch_start_height(&block_hash)?;
     let mut height = epoch_start;
+    let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
+    let mut chunk_stats = HashMap::<ShardId, HashMap::<AccountId, (usize, usize)>>::new();
+
     loop {
         if height > epoch_start + near_config.genesis.config.epoch_length || height > head {
             break;
         }
         let p = epoch_manager.get_block_producer(&epoch_id, height)?;
+
+        let (produced, expected) = block_stats.entry(p.clone()).or_default();
+        *expected += 1;
 
         match chain_store.get_block_hash_by_height(height) {
             Ok(h) => {
@@ -881,6 +887,7 @@ pub(crate) fn validators(
                     break;
                 }
 
+                *produced += 1;
                 let mut chunks = String::new();
                 for c in block.chunks().iter() {
                     if let Some(shard_id) = shard_id {
@@ -890,7 +897,11 @@ pub(crate) fn validators(
                     }
                     let chunk_producer =
                     epoch_manager.get_chunk_producer(&epoch_id, height, c.shard_id())?;
+                    let shard_stats = chunk_stats.entry(c.shard_id()).or_default();
+                    let (produced, expected) = shard_stats.entry(chunk_producer.clone()).or_default();
+                    *expected += 1;
                     if c.height_included() == block.header().height() {
+                        *produced += 1;
                         chunks += &format!("{}, ", chunk_producer);
                     } else {
                         chunks += &format!("BADDDD <{}> BADDDDD, ", chunk_producer);
@@ -905,6 +916,31 @@ pub(crate) fn validators(
                 continue;
             }
         };
+    }
+
+    println!("\nblock stats:\n");
+    let mut total_expected = 0;
+    let mut total_produced = 0;
+
+    for (account_id, (produced, expected)) in block_stats.iter() {
+        println!("{}: {}/{}", account_id, produced, expected);
+        total_expected += expected;
+        total_produced += produced;
+    }
+    println!("total: {}/{}", total_produced, total_expected);
+
+    println!("\nchunk stats:\n");
+
+    for (shard_id, stats) in chunk_stats.iter() {
+        total_expected = 0;
+        total_produced = 0;
+        println!("shard {}:", shard_id);
+        for (account_id, (produced, expected)) in stats.iter() {
+            println!("{}: {}/{}", account_id, produced, expected);
+            total_expected += expected;
+            total_produced += produced;
+        }
+        println!("total: {}/{}", total_produced, total_expected);
     }
 
     Ok(())
