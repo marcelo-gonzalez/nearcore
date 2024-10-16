@@ -883,6 +883,8 @@ fn print_validator_stats(
                 *produced += 1;
                 let mut chunks = String::new();
                 for c in block.chunks().iter() {
+                    let prev_block_height = chain_store.get_block_header(c.prev_block_hash()).map_or(0, |h| h.height());
+                    println!("loop height {} block height {} shard {} created {} included {} prev height {}", height, block.header().height(), c.shard_id(), c.height_created(), c.height_included(), prev_block_height);
                     let chunk_producer =
                         epoch_manager.get_chunk_producer(&epoch_id, height, c.shard_id())?;
                     let shard_stats = chunk_stats.entry(c.shard_id()).or_default();
