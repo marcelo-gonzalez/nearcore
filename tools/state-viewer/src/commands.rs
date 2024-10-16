@@ -38,7 +38,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::flat::FlatStorageChunkView;
 use near_store::flat::FlatStorageManager;
@@ -919,6 +919,61 @@ fn add_endorsement_stats(
     Ok(())
 }
 
+fn collect_validator_info(
+    epoch_manager: &EpochManagerHandle,
+    protocol_version: ProtocolVersion,
+    block_producer: &AccountId,
+    block: &Block,
+    print_every_height: bool,
+    chunk_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
+    endorsement_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
+    warnings: &mut ValidatorInfoWarnings,
+) -> anyhow::Result<()> {
+    let mut info = if print_every_height {
+        Some(format!("{}: BLOCK PRODUCER: {}: CHUNKS:\n", block.header().height(), &block_producer))
+    } else {
+        None
+    };
+    for chunk_header in block.chunks().iter() {
+        let chunk_producer = epoch_manager.get_chunk_producer(
+            block.header().epoch_id(),
+            block.header().height(),
+            chunk_header.shard_id(),
+        )?;
+        let shard_stats = chunk_stats.entry(chunk_header.shard_id()).or_default();
+        let (produced, expected) = shard_stats.entry(chunk_producer.clone()).or_default();
+        *expected += 1;
+        if chunk_header.height_included() == block.header().height() {
+            if let Some(info) = &mut info {
+                *info += &format!("{}: {} PRODUCED", chunk_header.shard_id(), &chunk_producer);
+            }
+            *produced += 1;
+        } else {
+            if let Some(info) = &mut info {
+                *info += &format!("{}: {} NOT PRODUCED", chunk_header.shard_id(), &chunk_producer);
+            }
+        }
+        if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
+            add_endorsement_stats(
+                epoch_manager,
+                block.header(),
+                chunk_header.shard_id(),
+                chunk_header.height_created(),
+                info.as_mut(),
+                endorsement_stats.entry(chunk_header.shard_id()).or_default(),
+                warnings,
+            )?;
+        }
+        if let Some(info) = &mut info {
+            *info += "\n";
+        }
+    }
+    if let Some(info) = &info {
+        println!("{}", info);
+    }
+    Ok(())
+}
+
 fn print_validator_stats(
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
@@ -959,58 +1014,17 @@ fn print_validator_stats(
 
                 *produced_blocks += 1;
                 *expected_blocks += 1;
-                let mut info = if print_every_height {
-                    Some(format!("{}: BLOCK PRODUCER: {}: CHUNKS:\n", height, &block_producer))
-                } else {
-                    None
-                };
-                for chunk_header in block.chunks().iter() {
-                    let chunk_producer = epoch_manager.get_chunk_producer(
-                        &epoch_id,
-                        height,
-                        chunk_header.shard_id(),
-                    )?;
-                    let shard_stats = chunk_stats.entry(chunk_header.shard_id()).or_default();
-                    let (produced, expected) =
-                        shard_stats.entry(chunk_producer.clone()).or_default();
-                    *expected += 1;
-                    if chunk_header.height_included() == block.header().height() {
-                        if let Some(info) = &mut info {
-                            *info += &format!(
-                                "{}: {} PRODUCED",
-                                chunk_header.shard_id(),
-                                &chunk_producer
-                            );
-                        }
-                        *produced += 1;
-                    } else {
-                        if let Some(info) = &mut info {
-                            *info += &format!(
-                                "{}: {} NOT PRODUCED",
-                                chunk_header.shard_id(),
-                                &chunk_producer
-                            );
-                        }
-                    }
-                    if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
-                        add_endorsement_stats(
-                            epoch_manager,
-                            block.header(),
-                            chunk_header.shard_id(),
-                            chunk_header.height_created(),
-                            info.as_mut(),
-                            endorsement_stats.entry(chunk_header.shard_id()).or_default(),
-                            &mut warnings,
-                        )?;
-                    }
-                    if let Some(info) = &mut info {
-                        *info += "\n";
-                    }
-                }
-                if let Some(info) = &info {
-                    println!("{}", info);
-                }
-                height += 1;
+
+                collect_validator_info(
+                    epoch_manager,
+                    protocol_version,
+                    &block_producer,
+                    &block,
+                    print_every_height,
+                    &mut chunk_stats,
+                    &mut endorsement_stats,
+                    &mut warnings,
+                )?;
             }
             Err(_) => {
                 *expected_blocks += 1;
@@ -1018,10 +1032,9 @@ fn print_validator_stats(
                 if print_every_height {
                     println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
                 }
-                height += 1;
-                continue;
             }
         };
+        height += 1;
     }
 
     println!("\nBLOCK STATS:\n");
