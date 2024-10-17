@@ -1213,10 +1213,11 @@ fn print_validator_stats(
                 total_expected = 0;
                 total_produced = 0;
                 println!("\nENDORSEMENTS:");
+                println!("ACCOUNT ID | INCLUDED/EXPECTED | AVERAGE CHUNK VALIDATOR STAKE CONTRIBUTION PCT");
                 let endorsement_stats = sort_validator_info(endorsement_stats);
                 for (account_id, stats) in endorsement_stats.iter() {
                     println!(
-                        "{}: {}/{} average chunk validator stake contribution: {}",
+                        "{} | {}/{} | {}",
                         account_id,
                         stats.included,
                         stats.expected,
