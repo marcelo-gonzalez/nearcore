@@ -40,7 +40,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::adapter::StoreAdapter;
@@ -877,6 +877,14 @@ struct ValidatorInfoWarnings {
     warned_bad_length: bool,
 }
 
+#[derive(Default)]
+struct ChunkEndorsementStats {
+    expected_endorsements: Vec<(AccountId, bool)>,
+    endorsements_included: usize,
+    endorsed_stake: Balance,
+    total_stake: Balance,
+}
+
 fn add_endorsement_stats(
     epoch_manager: &EpochManagerHandle,
     block: &Block,
@@ -886,7 +894,7 @@ fn add_endorsement_stats(
     endorsement_stats: &mut HashMap<AccountId, (usize, usize)>,
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
-    let mut info = info.map(|info| (Vec::<(AccountId, bool)>::new(), info));
+    let mut info = info.map(|info| (ChunkEndorsementStats::default(), info));
 
     let validators = epoch_manager.get_chunk_validator_assignments(
         block.header().epoch_id(),
@@ -895,9 +903,6 @@ fn add_endorsement_stats(
     )?;
     let assignments = validators.assignments();
 
-    if let Some((_stats, info_str)) = info.as_mut() {
-        **info_str += &format!(" ENDORSEMENTS: |");
-    }
     let endorsements = block.chunk_endorsements();
     if endorsements.len() as ShardId <= shard_id {
         if !warnings.warned_bad_shard {
@@ -920,10 +925,15 @@ fn add_endorsement_stats(
         }
     }
 
-    for (signature, (validator_id, _stake)) in endorsements.iter().zip(assignments.iter()) {
+    for (signature, (validator_id, stake)) in endorsements.iter().zip(assignments.iter()) {
         let has_endorsement = signature.is_some();
         if let Some((stats, _info_str)) = info.as_mut() {
-            stats.push((validator_id.clone(), has_endorsement));
+            stats.expected_endorsements.push((validator_id.clone(), has_endorsement));
+            if has_endorsement {
+                stats.endorsed_stake += stake;
+                stats.endorsements_included += 1;
+            }
+            stats.total_stake += stake;
         }
         let (produced, expected) = endorsement_stats.entry(validator_id.clone()).or_default();
         if has_endorsement {
@@ -933,13 +943,23 @@ fn add_endorsement_stats(
     }
 
     if let Some((stats, info_str)) = info.as_mut() {
-        stats.sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
-        for (account_id, has_endorsement) in stats.iter() {
-            if *has_endorsement {
-                **info_str += &format!(" {} YES |", account_id);
-            } else {
-                **info_str += &format!(" {} NO |", account_id);
-            }
+        stats
+            .expected_endorsements
+            .sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
+        **info_str += &format!(
+            "    ENDORSEMENTS: {}/{}",
+            stats.endorsements_included,
+            stats.expected_endorsements.len()
+        );
+        if stats.endorsements_included < stats.expected_endorsements.len() {
+            let didnt_endorse: Vec<_> = stats
+                .expected_endorsements
+                .iter()
+                .map(|(account_id, _)| account_id.as_str())
+                .collect();
+            let stake_pct = 100 * stats.endorsed_stake / stats.total_stake;
+            **info_str +=
+                &format!(" ({}% of expected stake) didn't endorse: {:?}", stake_pct, didnt_endorse);
         }
     }
     Ok(())
