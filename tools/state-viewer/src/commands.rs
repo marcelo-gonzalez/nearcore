@@ -1071,6 +1071,7 @@ fn print_validator_stats(
     epoch_start: BlockHeight,
     protocol_version: ProtocolVersion,
     print_every_height: bool,
+    progress: usize,
 ) -> anyhow::Result<Option<CryptoHash>> {
     let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
     let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
@@ -1088,6 +1089,7 @@ fn print_validator_stats(
 
     let mut next_epoch_start_block_hash = None;
 
+    let mut done = 0;
     loop {
         let block_producer = epoch_manager.get_block_producer(epoch_id, block.header().height())?;
 
@@ -1134,6 +1136,13 @@ fn print_validator_stats(
             break;
         }
         block = next_block;
+
+        if progress > 0 {
+            done += 1;
+            if done % progress == 0 {
+                tracing::info!("do #{}", block.header().height());
+            }
+        }
     }
 
     println!("\nBLOCK STATS:\n");
@@ -1189,6 +1198,7 @@ pub(crate) fn validator_info(
     print_every_height: bool,
     near_config: NearConfig,
     store: Store,
+    progress: usize,
 ) -> anyhow::Result<()> {
     let genesis_height = near_config.genesis.config.genesis_height;
     let chain_store =
@@ -1231,6 +1241,7 @@ pub(crate) fn validator_info(
             epoch_start,
             protocol_version,
             print_every_height,
+            progress,
         )?;
 
         match next_hash {

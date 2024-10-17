@@ -972,6 +972,8 @@ pub struct ValidatorInfoCmd {
     end_height: Option<u64>,
     #[clap(long)]
     print_every_height: bool,
+    #[clap(long)]
+    progress: Option<usize>,
 }
 
 impl ValidatorInfoCmd {
@@ -982,6 +984,7 @@ impl ValidatorInfoCmd {
             self.print_every_height,
             near_config,
             store,
+            self.progress.unwrap_or(0),
         )
         .unwrap();
     }
