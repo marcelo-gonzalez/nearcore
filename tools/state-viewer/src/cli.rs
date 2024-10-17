@@ -121,6 +121,8 @@ pub enum StateViewerSubCommand {
     /// Tools for printing and recalculating the congestion information.
     #[clap(subcommand)]
     CongestionControl(CongestionControlCmd),
+    /// show block/chunk production
+    ValidatorInfo(ValidatorInfoCmd),
 }
 
 impl StateViewerSubCommand {
@@ -178,6 +180,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ValidatorInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewGenesis(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
@@ -958,5 +961,28 @@ fn initialize_write_store(temperature: SaveTrieTemperature, node_storage: NodeSt
         SaveTrieTemperature::Cold => node_storage
             .get_recovery_store()
             .expect("recovery store must be present if explicitly requested"),
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ValidatorInfoCmd {
+    #[clap(long)]
+    start_height: Option<u64>,
+    #[clap(long)]
+    end_height: Option<u64>,
+    #[clap(long)]
+    print_every_height: bool,
+}
+
+impl ValidatorInfoCmd {
+    pub fn run(self, near_config: NearConfig, store: Store) {
+        validator_info(
+            self.start_height,
+            self.end_height,
+            self.print_every_height,
+            near_config,
+            store,
+        )
+        .unwrap();
     }
 }
