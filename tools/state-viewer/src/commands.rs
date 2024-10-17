@@ -891,6 +891,7 @@ fn add_endorsement_stats(
     shard_id: ShardId,
     height_created: BlockHeight,
     info: Option<&mut String>,
+    show_missed_endorsements: bool,
     endorsement_stats: &mut HashMap<AccountId, (usize, usize)>,
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
@@ -952,14 +953,17 @@ fn add_endorsement_stats(
             stats.expected_endorsements.len()
         );
         if stats.endorsements_included < stats.expected_endorsements.len() {
-            let didnt_endorse: Vec<_> = stats
-                .expected_endorsements
-                .iter()
-                .map(|(account_id, _)| account_id.as_str())
-                .collect();
             let stake_pct = 100 * stats.endorsed_stake / stats.total_stake;
-            **info_str +=
-                &format!(" ({}% of expected stake) didn't endorse: {:?}", stake_pct, didnt_endorse);
+            **info_str += &format!(" ({}% of expected stake)", stake_pct);
+
+            if show_missed_endorsements {
+                let didnt_endorse: Vec<_> = stats
+                    .expected_endorsements
+                    .iter()
+                    .map(|(account_id, _)| account_id.as_str())
+                    .collect();
+                **info_str += &format!(" didn't endorse: {:?}", didnt_endorse);
+            }
         }
     }
     Ok(())
@@ -971,6 +975,7 @@ fn collect_validator_info(
     block_producer: &AccountId,
     block: &Block,
     print_every_height: bool,
+    show_missed_endorsements: bool,
     chunk_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
     endorsement_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
     warnings: &mut ValidatorInfoWarnings,
@@ -1000,6 +1005,7 @@ fn collect_validator_info(
                 chunk_header.shard_id(),
                 chunk_header.height_created(),
                 info.as_mut(),
+                show_missed_endorsements,
                 endorsement_stats.entry(chunk_header.shard_id()).or_default(),
                 warnings,
             )?;
@@ -1106,6 +1112,7 @@ fn print_validator_stats(
     epoch_start: BlockHeight,
     protocol_version: ProtocolVersion,
     print_every_height: bool,
+    show_missed_endorsements: bool,
 ) -> anyhow::Result<Option<CryptoHash>> {
     let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
     let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
@@ -1138,6 +1145,7 @@ fn print_validator_stats(
             &block_producer,
             &block,
             print_every_height,
+            show_missed_endorsements,
             &mut chunk_stats,
             &mut endorsement_stats,
             &mut warnings,
@@ -1222,6 +1230,7 @@ pub(crate) fn validator_info(
     start_height: Option<u64>,
     end_height: Option<u64>,
     print_every_height: bool,
+    show_missed_endorsements: bool,
     near_config: NearConfig,
     store: Store,
 ) -> anyhow::Result<()> {
@@ -1266,6 +1275,7 @@ pub(crate) fn validator_info(
             epoch_start,
             protocol_version,
             print_every_height,
+            show_missed_endorsements,
         )?;
 
         match next_hash {
