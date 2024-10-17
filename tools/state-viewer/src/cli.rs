@@ -972,6 +972,8 @@ pub struct ValidatorInfoCmd {
     end_height: Option<u64>,
     #[clap(long)]
     print_every_height: bool,
+    #[clap(long)]
+    show_missed_endorsements: bool,
 }
 
 impl ValidatorInfoCmd {
@@ -980,6 +982,7 @@ impl ValidatorInfoCmd {
             self.start_height,
             self.end_height,
             self.print_every_height,
+            self.show_missed_endorsements,
             near_config,
             store,
         )
