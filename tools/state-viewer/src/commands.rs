@@ -879,8 +879,10 @@ struct ValidatorInfoWarnings {
 
 #[derive(Default)]
 struct ChunkEndorsementStats {
-    expected_endorsements: Vec<(AccountId, bool)>,
+    endorsed: Vec<(AccountId, bool)>,
+    didnt_endorse: Vec<(AccountId, bool)>,
     endorsements_included: usize,
+    endorsements_expected: usize,
     endorsed_stake: Balance,
 }
 
@@ -945,11 +947,14 @@ fn add_endorsement_stats(
     for (signature, (validator_id, stake)) in endorsements.iter().zip(assignments.iter()) {
         let has_endorsement = signature.is_some();
         if let Some((stats, _info_str)) = info.as_mut() {
-            stats.expected_endorsements.push((validator_id.clone(), has_endorsement));
             if has_endorsement {
                 stats.endorsed_stake += stake;
                 stats.endorsements_included += 1;
+                stats.endorsed.push((validator_id.clone(), has_endorsement));
+            } else {
+                stats.didnt_endorse.push((validator_id.clone(), has_endorsement));
             }
+            stats.endorsements_expected += 1;
         }
         let validator_stats = endorsement_stats.entry(validator_id.clone()).or_default();
         if has_endorsement {
@@ -962,25 +967,26 @@ fn add_endorsement_stats(
 
     if let Some((stats, info_str)) = info.as_mut() {
         stats
-            .expected_endorsements
+            .endorsed
+            .sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
+        stats
+            .didnt_endorse
             .sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
         **info_str += &format!(
-            "    ENDORSEMENTS: {}/{}",
-            stats.endorsements_included,
-            stats.expected_endorsements.len()
+            "   ENDORSEMENTS: {}/{}",
+            stats.endorsements_included, stats.endorsements_expected,
         );
-        if stats.endorsements_included < stats.expected_endorsements.len() {
+        if stats.endorsements_included < stats.endorsements_expected {
             let stake_pct = 100 * stats.endorsed_stake / total_stake;
             **info_str += &format!(" ({}% of expected stake)", stake_pct);
-
-            if show_missed_endorsements {
-                let didnt_endorse: Vec<_> = stats
-                    .expected_endorsements
-                    .iter()
-                    .map(|(account_id, _)| account_id.as_str())
-                    .collect();
-                **info_str += &format!(" didn't endorse: {:?}", didnt_endorse);
-            }
+        }
+        if show_missed_endorsements {
+            let didnt_endorse: Vec<_> =
+                stats.didnt_endorse.iter().map(|(account_id, _)| account_id.as_str()).collect();
+            let endorsed: Vec<_> =
+                stats.endorsed.iter().map(|(account_id, _)| account_id.as_str()).collect();
+            **info_str += &format!("\nENDORSEMENTS INCLUDED: {:?}", endorsed);
+            **info_str += &format!("\nENDORSEMENTS NOT INCLUDED: {:?}\n", didnt_endorse);
         }
     }
     Ok(())
@@ -998,7 +1004,11 @@ fn collect_validator_info(
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
     let mut info = if print_every_height {
-        Some(format!("{}: BLOCK PRODUCER: {}: CHUNKS:\n", block.header().height(), &block_producer))
+        Some(format!(
+            "{}: BLOCK PRODUCER: {}:\nCHUNKS:\n",
+            block.header().height(),
+            &block_producer
+        ))
     } else {
         None
     };
