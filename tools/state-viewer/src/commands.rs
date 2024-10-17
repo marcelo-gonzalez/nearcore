@@ -957,21 +957,21 @@ fn collect_validator_info(
                 *info += &format!("{}: {} PRODUCED", chunk_header.shard_id(), &chunk_producer);
             }
             *produced += 1;
+            if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
+                add_endorsement_stats(
+                    epoch_manager,
+                    block.header(),
+                    chunk_header.shard_id(),
+                    chunk_header.height_created(),
+                    info.as_mut(),
+                    endorsement_stats.entry(chunk_header.shard_id()).or_default(),
+                    warnings,
+                )?;
+            }
         } else {
             if let Some(info) = &mut info {
                 *info += &format!("{}: {} NOT PRODUCED", chunk_header.shard_id(), &chunk_producer);
             }
-        }
-        if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
-            add_endorsement_stats(
-                epoch_manager,
-                block.header(),
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
-                info.as_mut(),
-                endorsement_stats.entry(chunk_header.shard_id()).or_default(),
-                warnings,
-            )?;
         }
         if let Some(info) = &mut info {
             *info += "\n";
@@ -1063,69 +1063,78 @@ fn print_catchup_info(
     Ok(())
 }
 
+// print stats for the given epoch. Returns the first block hash that doesn't belong to this epoch.
 fn print_validator_stats(
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
     near_config: &NearConfig,
-    block_hash: CryptoHash,
-    head_height: BlockHeight,
+    epoch_id: &EpochId,
+    epoch_start: BlockHeight,
     print_every_height: bool,
-) -> anyhow::Result<()> {
-    let block = chain_store.get_block(&block_hash)?;
-    let epoch_id = block.header().epoch_id().clone();
-
-    let epoch_start = epoch_manager.get_epoch_start_height(&block_hash)?;
-    let protocol_version = epoch_manager.get_epoch_protocol_version(&epoch_id)?;
-    let mut height = epoch_start;
+) -> anyhow::Result<Option<CryptoHash>> {
+    let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
     let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
     let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
     let mut endorsement_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
     let mut warnings = ValidatorInfoWarnings::default();
 
-    let epoch_height = epoch_manager.get_epoch_info(&epoch_id)?.epoch_height();
-    println!("---------- epoch {} #{} ----------", &epoch_id.0, epoch_height);
+    let mut block = match chain_store.get_block_hash_by_height(epoch_start) {
+        Ok(hash) => chain_store.get_block(&hash)?,
+        Err(e) => {
+            return Err(e)
+                .with_context(|| format!("could not find epoch start block #{}", epoch_start))
+        }
+    };
+    assert!(block.header().epoch_id() == epoch_id);
 
-    print_catchup_info(epoch_manager, block.header())?;
+    let mut next_epoch_start_block_hash = None;
 
     loop {
-        if height > epoch_start + near_config.genesis.config.epoch_length || height > head_height {
-            break;
-        }
-        let block_producer = epoch_manager.get_block_producer(&epoch_id, height)?;
+        let block_producer = epoch_manager.get_block_producer(epoch_id, block.header().height())?;
 
         let (produced_blocks, expected_blocks) =
             block_stats.entry(block_producer.clone()).or_default();
 
-        match chain_store.get_block_hash_by_height(height) {
-            Ok(h) => {
-                let block = chain_store.get_block(&h)?;
-                if block.header().epoch_id() != &epoch_id {
-                    break;
-                }
+        *produced_blocks += 1;
+        *expected_blocks += 1;
 
-                *produced_blocks += 1;
-                *expected_blocks += 1;
+        collect_validator_info(
+            epoch_manager,
+            protocol_version,
+            &block_producer,
+            &block,
+            print_every_height,
+            &mut chunk_stats,
+            &mut endorsement_stats,
+            &mut warnings,
+        )?;
 
-                collect_validator_info(
-                    epoch_manager,
-                    protocol_version,
-                    &block_producer,
-                    &block,
-                    print_every_height,
-                    &mut chunk_stats,
-                    &mut endorsement_stats,
-                    &mut warnings,
-                )?;
-            }
-            Err(_) => {
-                *expected_blocks += 1;
-                println!("wtf");
-                if print_every_height {
-                    println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
-                }
-            }
+        let next_hash = match chain_store.get_next_block_hash(block.hash()) {
+            Ok(hash) => hash,
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => break,
+            Err(e) => return Err(e.into()),
         };
-        height += 1;
+        let next_block = match chain_store.get_block(&next_hash) {
+            Ok(b) => b,
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => break,
+            Err(e) => return Err(e.into()),
+        };
+
+        for height in block.header().height() + 1..next_block.header().height() {
+            let block_producer = epoch_manager.get_block_producer(epoch_id, height)?;
+            let (_produced_blocks, expected_blocks) =
+                block_stats.entry(block_producer.clone()).or_default();
+            *expected_blocks += 1;
+            if print_every_height {
+                println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
+            }
+        }
+
+        if next_block.header().epoch_id() != epoch_id {
+            next_epoch_start_block_hash = Some(next_hash);
+            break;
+        }
+        block = next_block;
     }
 
     println!("\nBLOCK STATS:\n");
@@ -1172,7 +1181,7 @@ fn print_validator_stats(
             }
         }
     }
-    Ok(())
+    Ok(next_epoch_start_block_hash)
 }
 
 pub(crate) fn validator_info(
@@ -1187,22 +1196,43 @@ pub(crate) fn validator_info(
         ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
 
-    let head_height = chain_store.head().unwrap().height;
-    let block_hash = match end_height {
+    let mut block_hash = match start_height {
+        // TODO: if the block doesn't exist, search for another in that epoch.
         Some(height) => chain_store.get_block_hash_by_height(height)?,
         None => {
             let head = chain_store.head()?;
             head.last_block_hash
         }
     };
-    print_validator_stats(
-        &chain_store,
-        &epoch_manager,
-        &near_config,
-        block_hash,
-        head_height,
-        print_every_height,
-    )?;
+    loop {
+        let header = chain_store.get_block_header(&block_hash)?;
+        let epoch_start = epoch_manager.get_epoch_start_height(header.hash())?;
+
+        if let Some(end_height) = end_height {
+            if epoch_start > end_height {
+                break;
+            }
+        }
+
+        let epoch_height = epoch_manager.get_epoch_info(header.epoch_id())?.epoch_height();
+        println!("---------- epoch {} #{} ----------", &header.epoch_id().0, epoch_height);
+
+        print_catchup_info(&epoch_manager, &header)?;
+
+        let next_hash = print_validator_stats(
+            &chain_store,
+            &epoch_manager,
+            &near_config,
+            header.epoch_id(),
+            epoch_start,
+            print_every_height,
+        )?;
+
+        match next_hash {
+            Some(next_hash) => block_hash = next_hash,
+            None => break,
+        };
+    }
     Ok(())
 }
 
