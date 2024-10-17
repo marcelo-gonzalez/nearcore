@@ -858,7 +858,7 @@ struct ValidatorInfoWarnings {
 
 fn add_endorsement_stats(
     epoch_manager: &EpochManagerHandle,
-    header: &BlockHeader,
+    block: &Block,
     shard_id: ShardId,
     height_created: BlockHeight,
     info: Option<&mut String>,
@@ -867,15 +867,15 @@ fn add_endorsement_stats(
 ) -> anyhow::Result<()> {
     let mut info = info.map(|info| (Vec::<(AccountId, bool)>::new(), info));
 
-    let Some(endorsements) = header.chunk_endorsements() else {
+    let Some(endorsements) = block.header().chunk_endorsements() else {
         if !warnings.warned_no_endorsements {
-            tracing::error!("no endorsements found in block header #{}", header.height());
+            tracing::error!("no endorsements found in block header #{}", block.header().height());
             warnings.warned_no_endorsements = true;
         }
         return Ok(());
     };
     let validators = epoch_manager.get_chunk_validator_assignments(
-        header.epoch_id(),
+        block.header().epoch_id(),
         shard_id,
         height_created,
     )?;
@@ -894,12 +894,23 @@ fn add_endorsement_stats(
         if !warnings.warned_bad_length {
             tracing::error!(
                 "not enough endorsements found in block header #{} for shard {}",
-                header.height(),
+                block.header().height(),
                 shard_id
             );
             warnings.warned_bad_length = true;
         }
     }
+    let all_chunk_endorsements = block.chunk_endorsements();
+    let shard_id_idx = shard_id as usize;
+    let chunk_endorsements = all_chunk_endorsements.get(shard_id_idx);
+    if chunk_endorsements.is_none() {
+        tracing::error!(
+            "block endorsements too short #{}: len {}",
+            block.header().height(),
+            all_chunk_endorsements.len()
+        );
+    }
+    let mut same = true;
     for (i, has_endorsement) in endorsements.iter(shard_id).enumerate() {
         if i >= assignments.len() {
             // endorsements.iter() returns more values than actually correspond to real validators
@@ -914,6 +925,29 @@ fn add_endorsement_stats(
             *produced += 1;
         }
         *expected += 1;
+        if let Some(e) = chunk_endorsements {
+            let body_has_endorsement = e.get(i).map(|s| s.is_some());
+            match body_has_endorsement {
+                Some(body_has_endorsement) => {
+                    if body_has_endorsement != has_endorsement {
+                        tracing::info!("xxxxxxxxxxxx block body endorsement doesn't match #{} shard {} idx {} validator {}", block.header().height(), shard_id, i, validator_id);
+                        same = false;
+                    }
+                }
+                None => {
+                    tracing::info!("xxxxxxxxxxxx block body endorsements too short #{} shard {} idx {} validator {}", block.header().height(), shard_id, i, validator_id);
+                    same = false;
+                }
+            };
+        }
+    }
+    if same {
+        tracing::info!(
+            "xxxxxxxxxxxx #{} {} matches. len: {:?}",
+            block.header().height(),
+            shard_id,
+            chunk_endorsements.map(|e| e.len())
+        )
     }
     if let Some((stats, info_str)) = info.as_mut() {
         stats.sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
@@ -960,7 +994,7 @@ fn collect_validator_info(
             if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
                 add_endorsement_stats(
                     epoch_manager,
-                    block.header(),
+                    block,
                     chunk_header.shard_id(),
                     chunk_header.height_created(),
                     info.as_mut(),
