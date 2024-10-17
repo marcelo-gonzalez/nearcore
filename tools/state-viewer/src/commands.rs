@@ -882,7 +882,21 @@ struct ChunkEndorsementStats {
     expected_endorsements: Vec<(AccountId, bool)>,
     endorsements_included: usize,
     endorsed_stake: Balance,
-    total_stake: Balance,
+}
+
+#[derive(Default)]
+struct ValidatorEndorsementStats {
+    included: usize,
+    expected: usize,
+    total_staked: Balance,
+    other_validators_total_staked: Balance,
+}
+
+fn percentage(numer: u64, denom: u64) -> Option<f64> {
+    if denom == 0 {
+        return None;
+    }
+    Some((100 * numer) as f64 / denom as f64)
 }
 
 fn add_endorsement_stats(
@@ -892,7 +906,7 @@ fn add_endorsement_stats(
     height_created: BlockHeight,
     info: Option<&mut String>,
     show_missed_endorsements: bool,
-    endorsement_stats: &mut HashMap<AccountId, (usize, usize)>,
+    endorsement_stats: &mut HashMap<AccountId, ValidatorEndorsementStats>,
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
     let mut info = info.map(|info| (ChunkEndorsementStats::default(), info));
@@ -926,6 +940,8 @@ fn add_endorsement_stats(
         }
     }
 
+    let total_stake: Balance = assignments.iter().map(|(_account_id, stake)| *stake).sum();
+
     for (signature, (validator_id, stake)) in endorsements.iter().zip(assignments.iter()) {
         let has_endorsement = signature.is_some();
         if let Some((stats, _info_str)) = info.as_mut() {
@@ -934,13 +950,14 @@ fn add_endorsement_stats(
                 stats.endorsed_stake += stake;
                 stats.endorsements_included += 1;
             }
-            stats.total_stake += stake;
         }
-        let (produced, expected) = endorsement_stats.entry(validator_id.clone()).or_default();
+        let validator_stats = endorsement_stats.entry(validator_id.clone()).or_default();
         if has_endorsement {
-            *produced += 1;
+            validator_stats.included += 1;
         }
-        *expected += 1;
+        validator_stats.expected += 1;
+        validator_stats.total_staked += stake;
+        validator_stats.other_validators_total_staked += total_stake;
     }
 
     if let Some((stats, info_str)) = info.as_mut() {
@@ -953,7 +970,7 @@ fn add_endorsement_stats(
             stats.expected_endorsements.len()
         );
         if stats.endorsements_included < stats.expected_endorsements.len() {
-            let stake_pct = 100 * stats.endorsed_stake / stats.total_stake;
+            let stake_pct = 100 * stats.endorsed_stake / total_stake;
             **info_str += &format!(" ({}% of expected stake)", stake_pct);
 
             if show_missed_endorsements {
@@ -977,7 +994,7 @@ fn collect_validator_info(
     print_every_height: bool,
     show_missed_endorsements: bool,
     chunk_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
-    endorsement_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
+    endorsement_stats: &mut HashMap<ShardId, HashMap<AccountId, ValidatorEndorsementStats>>,
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
     let mut info = if print_every_height {
@@ -1104,6 +1121,13 @@ fn print_catchup_info(
     Ok(())
 }
 
+fn balance_percentage_str(numer: Balance, denom: Balance) -> String {
+    if denom == 0 {
+        return String::from("NaN");
+    }
+    format!("{:.4}", (100 * numer) as f64 / denom as f64)
+}
+
 // print stats for the given epoch. Returns the first block hash that doesn't belong to this epoch.
 fn print_validator_stats(
     chain_store: &ChainStore,
@@ -1116,7 +1140,8 @@ fn print_validator_stats(
 ) -> anyhow::Result<Option<CryptoHash>> {
     let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
     let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
-    let mut endorsement_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
+    let mut endorsement_stats =
+        HashMap::<ShardId, HashMap<AccountId, ValidatorEndorsementStats>>::new();
     let mut warnings = ValidatorInfoWarnings::default();
 
     let mut block = match chain_store.get_block_hash_by_height(epoch_start) {
@@ -1211,10 +1236,19 @@ fn print_validator_stats(
                 total_produced = 0;
                 println!("\nENDORSEMENTS:");
                 let endorsement_stats = sort_validator_info(endorsement_stats);
-                for (account_id, (produced, expected)) in endorsement_stats.iter() {
-                    println!("{}: {}/{}", account_id, produced, expected);
-                    total_expected += expected;
-                    total_produced += produced;
+                for (account_id, stats) in endorsement_stats.iter() {
+                    println!(
+                        "{}: {}/{} average chunk validator stake contribution: {}",
+                        account_id,
+                        stats.included,
+                        stats.expected,
+                        balance_percentage_str(
+                            stats.total_staked,
+                            stats.other_validators_total_staked
+                        )
+                    );
+                    total_expected += stats.expected;
+                    total_produced += stats.included;
                 }
                 println!("TOTAL: {}/{}", total_produced, total_expected);
             }
