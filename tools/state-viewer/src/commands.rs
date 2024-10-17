@@ -23,11 +23,12 @@ use near_chain::types::{
 };
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
-use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::block::Block;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_info::EpochInfo;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
@@ -39,7 +40,7 @@ use near_primitives::stateless_validation::ChunkProductionKey;
 use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
-use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives_core::types::{Balance, EpochHeight};
 use near_store::adapter::trie_store::TrieStoreAdapter;
 use near_store::adapter::StoreAdapter;
@@ -51,8 +52,8 @@ use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
-use std::collections::HashMap;
 use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -868,6 +869,398 @@ fn read_genesis_from_store(
         }
     }
     Ok((genesis_block, genesis_chunks))
+}
+
+#[derive(Default)]
+struct ValidatorInfoWarnings {
+    warned_no_endorsements: bool,
+    warned_bad_shard: bool,
+    warned_bad_length: bool,
+}
+
+fn add_endorsement_stats(
+    epoch_manager: &EpochManagerHandle,
+    header: &BlockHeader,
+    shard_id: ShardId,
+    height_created: BlockHeight,
+    info: Option<&mut String>,
+    endorsement_stats: &mut HashMap<AccountId, (usize, usize)>,
+    warnings: &mut ValidatorInfoWarnings,
+) -> anyhow::Result<()> {
+    let mut info = info.map(|info| (Vec::<(AccountId, bool)>::new(), info));
+
+    let Some(endorsements) = header.chunk_endorsements() else {
+        if !warnings.warned_no_endorsements {
+            tracing::error!("no endorsements found in block header #{}", header.height());
+            warnings.warned_no_endorsements = true;
+        }
+        return Ok(());
+    };
+    let validators = epoch_manager.get_chunk_validator_assignments(
+        header.epoch_id(),
+        shard_id,
+        height_created,
+    )?;
+    let assignments = validators.assignments();
+    if endorsements.num_shards() as ShardId <= shard_id {
+        if !warnings.warned_bad_shard {
+            tracing::error!("shard ID {} not in endorsements ", shard_id);
+            warnings.warned_bad_shard = true;
+        }
+        return Ok(());
+    }
+    if let Some((_stats, info_str)) = info.as_mut() {
+        **info_str += &format!(" ENDORSEMENTS: |");
+    }
+    if endorsements.len(shard_id).unwrap() < assignments.len() {
+        if !warnings.warned_bad_length {
+            tracing::error!(
+                "not enough endorsements found in block header #{} for shard {}",
+                header.height(),
+                shard_id
+            );
+            warnings.warned_bad_length = true;
+        }
+    }
+    for (i, has_endorsement) in endorsements.iter(shard_id).enumerate() {
+        if i >= assignments.len() {
+            // endorsements.iter() returns more values than actually correspond to real validators
+            break;
+        }
+        let validator_id = &assignments[i].0;
+        if let Some((stats, _info_str)) = info.as_mut() {
+            stats.push((validator_id.clone(), has_endorsement));
+        }
+        let (produced, expected) = endorsement_stats.entry(validator_id.clone()).or_default();
+        if has_endorsement {
+            *produced += 1;
+        }
+        *expected += 1;
+    }
+    if let Some((stats, info_str)) = info.as_mut() {
+        stats.sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
+        for (account_id, has_endorsement) in stats.iter() {
+            if *has_endorsement {
+                **info_str += &format!(" {} YES |", account_id);
+            } else {
+                **info_str += &format!(" {} NO |", account_id);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_validator_info(
+    epoch_manager: &EpochManagerHandle,
+    protocol_version: ProtocolVersion,
+    block_producer: &AccountId,
+    block: &Block,
+    print_every_height: bool,
+    chunk_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
+    endorsement_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
+    warnings: &mut ValidatorInfoWarnings,
+) -> anyhow::Result<()> {
+    let mut info = if print_every_height {
+        Some(format!("{}: BLOCK PRODUCER: {}: CHUNKS:\n", block.header().height(), &block_producer))
+    } else {
+        None
+    };
+    for chunk_header in block.chunks().iter() {
+        let chunk_producer = epoch_manager.get_chunk_producer(
+            block.header().epoch_id(),
+            block.header().height(),
+            chunk_header.shard_id(),
+        )?;
+        let shard_stats = chunk_stats.entry(chunk_header.shard_id()).or_default();
+        let (produced, expected) = shard_stats.entry(chunk_producer.clone()).or_default();
+        *expected += 1;
+        if chunk_header.height_included() == block.header().height() {
+            if let Some(info) = &mut info {
+                *info += &format!("{}: {} PRODUCED", chunk_header.shard_id(), &chunk_producer);
+            }
+            *produced += 1;
+            if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
+                add_endorsement_stats(
+                    epoch_manager,
+                    block.header(),
+                    chunk_header.shard_id(),
+                    chunk_header.height_created(),
+                    info.as_mut(),
+                    endorsement_stats.entry(chunk_header.shard_id()).or_default(),
+                    warnings,
+                )?;
+            }
+        } else {
+            if let Some(info) = &mut info {
+                *info += &format!("{}: {} NOT PRODUCED", chunk_header.shard_id(), &chunk_producer);
+            }
+        }
+        if let Some(info) = &mut info {
+            *info += "\n";
+        }
+    }
+    if let Some(info) = &info {
+        println!("{}", info);
+    }
+    Ok(())
+}
+
+fn sort_validator_info<K: Ord, V>(info: HashMap<K, V>) -> Vec<(K, V)> {
+    let mut info = info.into_iter().collect::<Vec<_>>();
+    info.sort_by(|(left, _), (right, _)| left.cmp(right));
+    info
+}
+
+fn print_catchup_info(
+    epoch_manager: &EpochManagerHandle,
+    header: &BlockHeader,
+) -> anyhow::Result<()> {
+    let next_epoch_id = match epoch_manager.get_next_epoch_id(header.hash()) {
+        Ok(id) => id,
+        Err(EpochError::EpochOutOfBounds(_)) => {
+            println!("no catchup state sync info available for this epoch");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let epoch_info = epoch_manager.get_epoch_info(header.epoch_id())?;
+    let next_epoch_info = match epoch_manager.get_epoch_info(&next_epoch_id) {
+        Ok(info) => info,
+        Err(EpochError::EpochOutOfBounds(_)) => {
+            println!("no catchup state sync info available for this epoch");
+            return Ok(());
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let mut shard_assignments = HashMap::<AccountId, (HashSet<ShardId>, HashSet<ShardId>)>::new();
+
+    println!("\nTHIS EPOCH CHUNK PRODUCERS:");
+    for (shard_id, producers) in epoch_info.chunk_producers_settlement().iter().enumerate() {
+        let mut producer_accounts = Vec::new();
+        for p in producers.iter() {
+            let account_id = epoch_info.validator_account_id(*p);
+            producer_accounts.push(account_id.as_str());
+            let (this_epoch_shards, _next_epoch_shards) =
+                shard_assignments.entry(account_id.clone()).or_default();
+            this_epoch_shards.insert(shard_id as ShardId);
+        }
+        producer_accounts.sort();
+        println!("shard {}: {:?}", shard_id, &producer_accounts);
+    }
+    println!("\nNEXT EPOCH CHUNK PRODUCERS:");
+    for (shard_id, producers) in next_epoch_info.chunk_producers_settlement().iter().enumerate() {
+        let mut producer_accounts = Vec::new();
+        for p in producers.iter() {
+            let account_id = next_epoch_info.validator_account_id(*p);
+            producer_accounts.push(account_id.as_str());
+            let (_this_epoch_shards, next_epoch_shards) =
+                shard_assignments.entry(account_id.clone()).or_default();
+            next_epoch_shards.insert(shard_id as ShardId);
+        }
+        producer_accounts.sort();
+        println!("shard {}: {:?}", shard_id, &producer_accounts);
+    }
+
+    let mut printed_header = false;
+    let shard_assignments = sort_validator_info(shard_assignments);
+    for (account_id, (this_epoch_shards, next_epoch_shards)) in shard_assignments.into_iter() {
+        let new_shards: Vec<_> = next_epoch_shards
+            .into_iter()
+            .filter(|shard_id| !this_epoch_shards.contains(shard_id))
+            .collect();
+        if !new_shards.is_empty() {
+            if !printed_header {
+                println!("\nVALIDATORS THAT NEEDED TO STATE SYNC:");
+                printed_header = true;
+            }
+            println!("{}: shards: {:?}", account_id, new_shards);
+        }
+    }
+    if !printed_header {
+        println!("\nNO VALIDATORS NEEDED STATE SYNC");
+    }
+    println!("");
+    Ok(())
+}
+
+// print stats for the given epoch. Returns the first block hash that doesn't belong to this epoch.
+fn print_validator_stats(
+    chain_store: &ChainStore,
+    epoch_manager: &EpochManagerHandle,
+    epoch_id: &EpochId,
+    epoch_start: BlockHeight,
+    protocol_version: ProtocolVersion,
+    print_every_height: bool,
+) -> anyhow::Result<Option<CryptoHash>> {
+    let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
+    let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
+    let mut endorsement_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
+    let mut warnings = ValidatorInfoWarnings::default();
+
+    let mut block = match chain_store.get_block_hash_by_height(epoch_start) {
+        Ok(hash) => chain_store.get_block(&hash)?,
+        Err(e) => {
+            return Err(e)
+                .with_context(|| format!("could not find epoch start block #{}", epoch_start))
+        }
+    };
+    assert!(block.header().epoch_id() == epoch_id);
+
+    let mut next_epoch_start_block_hash = None;
+
+    loop {
+        let block_producer = epoch_manager.get_block_producer(epoch_id, block.header().height())?;
+
+        let (produced_blocks, expected_blocks) =
+            block_stats.entry(block_producer.clone()).or_default();
+
+        *produced_blocks += 1;
+        *expected_blocks += 1;
+
+        collect_validator_info(
+            epoch_manager,
+            protocol_version,
+            &block_producer,
+            &block,
+            print_every_height,
+            &mut chunk_stats,
+            &mut endorsement_stats,
+            &mut warnings,
+        )?;
+
+        let next_hash = match chain_store.get_next_block_hash(block.hash()) {
+            Ok(hash) => hash,
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => break,
+            Err(e) => return Err(e.into()),
+        };
+        let next_block = match chain_store.get_block(&next_hash) {
+            Ok(b) => b,
+            Err(near_chain_primitives::Error::DBNotFoundErr(_)) => break,
+            Err(e) => return Err(e.into()),
+        };
+
+        for height in block.header().height() + 1..next_block.header().height() {
+            let block_producer = epoch_manager.get_block_producer(epoch_id, height)?;
+            let (_produced_blocks, expected_blocks) =
+                block_stats.entry(block_producer.clone()).or_default();
+            *expected_blocks += 1;
+            if print_every_height {
+                println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
+            }
+        }
+
+        if next_block.header().epoch_id() != epoch_id {
+            next_epoch_start_block_hash = Some(next_hash);
+            break;
+        }
+        block = next_block;
+    }
+
+    println!("\nBLOCK STATS:\n");
+    let mut total_expected = 0;
+    let mut total_produced = 0;
+
+    let block_stats = sort_validator_info(block_stats);
+    for (account_id, (produced, expected)) in block_stats.iter() {
+        println!("{}: {}/{}", account_id, produced, expected);
+        total_expected += expected;
+        total_produced += produced;
+    }
+    println!("TOTAL: {}/{}", total_produced, total_expected);
+
+    println!("\nCHUNK STATS:\n");
+
+    let chunk_stats = sort_validator_info(chunk_stats);
+    for (shard_id, chunk_stats) in chunk_stats.into_iter() {
+        total_expected = 0;
+        total_produced = 0;
+        println!("\n------------ SHARD {} ------------", shard_id);
+        let chunk_stats = sort_validator_info(chunk_stats);
+        for (account_id, (produced, expected)) in chunk_stats.iter() {
+            println!("{}: {}/{}", account_id, produced, expected);
+            total_expected += expected;
+            total_produced += produced;
+        }
+        println!("TOTAL: {}/{}", total_produced, total_expected);
+        match endorsement_stats.remove(&shard_id) {
+            Some(endorsement_stats) => {
+                total_expected = 0;
+                total_produced = 0;
+                println!("\nENDORSEMENTS:");
+                let endorsement_stats = sort_validator_info(endorsement_stats);
+                for (account_id, (produced, expected)) in endorsement_stats.iter() {
+                    println!("{}: {}/{}", account_id, produced, expected);
+                    total_expected += expected;
+                    total_produced += produced;
+                }
+                println!("TOTAL: {}/{}", total_produced, total_expected);
+            }
+            None => {
+                println!("no endorsement stats for this shard");
+            }
+        }
+    }
+    Ok(next_epoch_start_block_hash)
+}
+
+pub(crate) fn validator_info(
+    start_height: Option<u64>,
+    end_height: Option<u64>,
+    print_every_height: bool,
+    near_config: NearConfig,
+    store: Store,
+) -> anyhow::Result<()> {
+    let genesis_height = near_config.genesis.config.genesis_height;
+    let chain_store =
+        ChainStore::new(store.clone(), genesis_height, !near_config.client_config.archive);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+
+    let mut block_hash = match start_height {
+        // TODO: if the block doesn't exist, search for another in that epoch.
+        Some(height) => chain_store.get_block_hash_by_height(height)?,
+        None => {
+            let head = chain_store.head()?;
+            head.last_block_hash
+        }
+    };
+    loop {
+        let header = chain_store.get_block_header(&block_hash)?;
+        let epoch_start = epoch_manager.get_epoch_start_height(header.hash())?;
+
+        if let Some(end_height) = end_height {
+            if epoch_start > end_height {
+                break;
+            }
+        }
+
+        let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
+        let epoch_height = epoch_manager.get_epoch_info(header.epoch_id())?.epoch_height();
+        println!(
+            "---------- epoch {} #{} protocol {} ----------",
+            &header.epoch_id().0,
+            epoch_height,
+            protocol_version
+        );
+
+        print_catchup_info(&epoch_manager, &header)?;
+
+        let next_hash = print_validator_stats(
+            &chain_store,
+            &epoch_manager,
+            header.epoch_id(),
+            epoch_start,
+            protocol_version,
+            print_every_height,
+        )?;
+
+        match next_hash {
+            Some(next_hash) => block_hash = next_hash,
+            None => break,
+        };
+    }
+    Ok(())
 }
 
 pub(crate) fn check_block_chunk_existence(near_config: NearConfig, store: Store) {
