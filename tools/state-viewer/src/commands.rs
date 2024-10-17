@@ -1067,12 +1067,11 @@ fn print_catchup_info(
 fn print_validator_stats(
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
-    near_config: &NearConfig,
     epoch_id: &EpochId,
     epoch_start: BlockHeight,
+    protocol_version: ProtocolVersion,
     print_every_height: bool,
 ) -> anyhow::Result<Option<CryptoHash>> {
-    let protocol_version = epoch_manager.get_epoch_protocol_version(epoch_id)?;
     let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
     let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
     let mut endorsement_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
@@ -1214,17 +1213,23 @@ pub(crate) fn validator_info(
             }
         }
 
+        let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
         let epoch_height = epoch_manager.get_epoch_info(header.epoch_id())?.epoch_height();
-        println!("---------- epoch {} #{} ----------", &header.epoch_id().0, epoch_height);
+        println!(
+            "---------- epoch {} #{} protocol {} ----------",
+            &header.epoch_id().0,
+            epoch_height,
+            protocol_version
+        );
 
         print_catchup_info(&epoch_manager, &header)?;
 
         let next_hash = print_validator_stats(
             &chain_store,
             &epoch_manager,
-            &near_config,
             header.epoch_id(),
             epoch_start,
+            protocol_version,
             print_every_height,
         )?;
 
