@@ -873,14 +873,13 @@ fn read_genesis_from_store(
 
 #[derive(Default)]
 struct ValidatorInfoWarnings {
-    warned_no_endorsements: bool,
     warned_bad_shard: bool,
     warned_bad_length: bool,
 }
 
 fn add_endorsement_stats(
     epoch_manager: &EpochManagerHandle,
-    header: &BlockHeader,
+    block: &Block,
     shard_id: ShardId,
     height_created: BlockHeight,
     info: Option<&mut String>,
@@ -889,45 +888,40 @@ fn add_endorsement_stats(
 ) -> anyhow::Result<()> {
     let mut info = info.map(|info| (Vec::<(AccountId, bool)>::new(), info));
 
-    let Some(endorsements) = header.chunk_endorsements() else {
-        if !warnings.warned_no_endorsements {
-            tracing::error!("no endorsements found in block header #{}", header.height());
-            warnings.warned_no_endorsements = true;
-        }
-        return Ok(());
-    };
     let validators = epoch_manager.get_chunk_validator_assignments(
-        header.epoch_id(),
+        block.header().epoch_id(),
         shard_id,
         height_created,
     )?;
     let assignments = validators.assignments();
-    if endorsements.num_shards() as ShardId <= shard_id {
+
+    if let Some((_stats, info_str)) = info.as_mut() {
+        **info_str += &format!(" ENDORSEMENTS: |");
+    }
+    let endorsements = block.chunk_endorsements();
+    if endorsements.len() as ShardId <= shard_id {
         if !warnings.warned_bad_shard {
             tracing::error!("shard ID {} not in endorsements ", shard_id);
             warnings.warned_bad_shard = true;
         }
         return Ok(());
     }
-    if let Some((_stats, info_str)) = info.as_mut() {
-        **info_str += &format!(" ENDORSEMENTS: |");
-    }
-    if endorsements.len(shard_id).unwrap() < assignments.len() {
+    let endorsements = &endorsements[shard_id as usize];
+    if endorsements.len() != assignments.len() {
         if !warnings.warned_bad_length {
             tracing::error!(
-                "not enough endorsements found in block header #{} for shard {}",
-                header.height(),
-                shard_id
+                "endorsements and assignments length mismatch found in block header #{} for shard {}: {} vs {}",
+                block.header().height(),
+                shard_id,
+                endorsements.len(),
+                assignments.len(),
             );
             warnings.warned_bad_length = true;
         }
     }
-    for (i, has_endorsement) in endorsements.iter(shard_id).enumerate() {
-        if i >= assignments.len() {
-            // endorsements.iter() returns more values than actually correspond to real validators
-            break;
-        }
-        let validator_id = &assignments[i].0;
+
+    for (signature, (validator_id, _stake)) in endorsements.iter().zip(assignments.iter()) {
+        let has_endorsement = signature.is_some();
         if let Some((stats, _info_str)) = info.as_mut() {
             stats.push((validator_id.clone(), has_endorsement));
         }
@@ -937,6 +931,7 @@ fn add_endorsement_stats(
         }
         *expected += 1;
     }
+
     if let Some((stats, info_str)) = info.as_mut() {
         stats.sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
         for (account_id, has_endorsement) in stats.iter() {
@@ -979,17 +974,15 @@ fn collect_validator_info(
                 *info += &format!("{}: {} PRODUCED", chunk_header.shard_id(), &chunk_producer);
             }
             *produced += 1;
-            if ProtocolFeature::ChunkEndorsementsInBlockHeader.enabled(protocol_version) {
-                add_endorsement_stats(
-                    epoch_manager,
-                    block.header(),
-                    chunk_header.shard_id(),
-                    chunk_header.height_created(),
-                    info.as_mut(),
-                    endorsement_stats.entry(chunk_header.shard_id()).or_default(),
-                    warnings,
-                )?;
-            }
+            add_endorsement_stats(
+                epoch_manager,
+                block,
+                chunk_header.shard_id(),
+                chunk_header.height_created(),
+                info.as_mut(),
+                endorsement_stats.entry(chunk_header.shard_id()).or_default(),
+                warnings,
+            )?;
         } else {
             if let Some(info) = &mut info {
                 *info += &format!("{}: {} NOT PRODUCED", chunk_header.shard_id(), &chunk_producer);
