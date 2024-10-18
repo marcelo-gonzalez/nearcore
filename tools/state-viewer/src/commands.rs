@@ -938,8 +938,10 @@ fn add_endorsement_stats(
     block: &Block,
     shard_id: ShardId,
     height_created: BlockHeight,
+    epoch_info: &EpochInfo,
     info: Option<&mut String>,
     show_missed_endorsements: bool,
+    machine_readable: bool,
     endorsement_stats: &mut HashMap<AccountId, ValidatorEndorsementStats>,
     online_height: &mut HashMap<AccountId, Option<BlockHeight>>,
     warnings: &mut ValidatorInfoWarnings,
@@ -977,6 +979,11 @@ fn add_endorsement_stats(
 
     let total_stake: Balance = assignments.iter().map(|(_account_id, stake)| *stake).sum();
 
+    if let Some((_stats, info_str)) = info.as_mut() {
+        if machine_readable {
+            **info_str += "[";
+        }
+    }
     for (signature, (validator_id, stake)) in endorsements.iter().zip(assignments.iter()) {
         let has_endorsement = signature.is_some();
         if let Some((stats, _info_str)) = info.as_mut() {
@@ -998,6 +1005,20 @@ fn add_endorsement_stats(
         validator_stats.stats.update(&online_height, validator_id, has_endorsement);
         validator_stats.total_staked += stake;
         validator_stats.other_validators_total_staked += total_stake;
+        if let Some((_stats, info_str)) = info.as_mut() {
+            if machine_readable {
+                **info_str += &format!(
+                    "{}{},",
+                    epoch_info.get_validator_id(validator_id).unwrap(),
+                    if has_endorsement { "" } else { "N" }
+                );
+            }
+        }
+    }
+    if let Some((_stats, info_str)) = info.as_mut() {
+        if machine_readable {
+            **info_str += "]";
+        }
     }
 
     if let Some((stats, info_str)) = info.as_mut() {
@@ -1007,21 +1028,23 @@ fn add_endorsement_stats(
         stats
             .didnt_endorse
             .sort_by(|(left_account, _), (right_account, _)| left_account.cmp(right_account));
-        **info_str += &format!(
-            "   ENDORSEMENTS: {}/{}",
-            stats.endorsements_included, stats.endorsements_expected,
-        );
-        if stats.endorsements_included < stats.endorsements_expected {
-            let stake_pct = 100 * stats.endorsed_stake / total_stake;
-            **info_str += &format!(" ({}% of expected stake)", stake_pct);
-        }
-        if show_missed_endorsements {
-            let didnt_endorse: Vec<_> =
-                stats.didnt_endorse.iter().map(|(account_id, _)| account_id.as_str()).collect();
-            let endorsed: Vec<_> =
-                stats.endorsed.iter().map(|(account_id, _)| account_id.as_str()).collect();
-            **info_str += &format!("\nENDORSEMENTS INCLUDED: {:?}", endorsed);
-            **info_str += &format!("\nENDORSEMENTS NOT INCLUDED: {:?}\n", didnt_endorse);
+        if !machine_readable {
+            **info_str += &format!(
+                "   ENDORSEMENTS: {}/{}",
+                stats.endorsements_included, stats.endorsements_expected,
+            );
+            if stats.endorsements_included < stats.endorsements_expected {
+                let stake_pct = 100 * stats.endorsed_stake / total_stake;
+                **info_str += &format!(" ({}% of expected stake)", stake_pct);
+            }
+            if show_missed_endorsements {
+                let didnt_endorse: Vec<_> =
+                    stats.didnt_endorse.iter().map(|(account_id, _)| account_id.as_str()).collect();
+                let endorsed: Vec<_> =
+                    stats.endorsed.iter().map(|(account_id, _)| account_id.as_str()).collect();
+                **info_str += &format!("\nENDORSEMENTS INCLUDED: {:?}", endorsed);
+                **info_str += &format!("\nENDORSEMENTS NOT INCLUDED: {:?}\n", didnt_endorse);
+            }
         }
     }
     Ok(())
@@ -1030,21 +1053,31 @@ fn add_endorsement_stats(
 fn collect_validator_info(
     epoch_manager: &EpochManagerHandle,
     protocol_version: ProtocolVersion,
+    epoch_info: &EpochInfo,
     block_producer: &AccountId,
     block: &Block,
     print_every_height: bool,
     show_missed_endorsements: bool,
+    machine_readable: bool,
     chunk_stats: &mut HashMap<ShardId, HashMap<AccountId, ProductionStats>>,
     endorsement_stats: &mut HashMap<ShardId, HashMap<AccountId, ValidatorEndorsementStats>>,
     online_height: &mut HashMap<AccountId, Option<BlockHeight>>,
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
     let mut info = if print_every_height {
-        Some(format!(
-            "{}: BLOCK PRODUCER: {}:\nCHUNKS:\n",
-            block.header().height(),
-            &block_producer
-        ))
+        if machine_readable {
+            Some(format!(
+                "{} ({}) Y: [",
+                block.header().height(),
+                epoch_info.get_validator_id(block_producer).unwrap()
+            ))
+        } else {
+            Some(format!(
+                "{}: BLOCK PRODUCER: {}:\nCHUNKS:\n",
+                block.header().height(),
+                &block_producer
+            ))
+        }
     } else {
         None
     };
@@ -1057,7 +1090,11 @@ fn collect_validator_info(
         let produced = chunk_header.height_included() == block.header().height();
         if produced {
             if let Some(info) = &mut info {
-                *info += &format!("{}: {} PRODUCED", chunk_header.shard_id(), &chunk_producer);
+                if machine_readable {
+                    *info += &format!("{} ", epoch_info.get_validator_id(&chunk_producer).unwrap());
+                } else {
+                    *info += &format!("{}: {} PRODUCED", chunk_header.shard_id(), &chunk_producer);
+                }
             }
             validator_did_something(online_height, &chunk_producer, block.header().height());
             add_endorsement_stats(
@@ -1065,8 +1102,10 @@ fn collect_validator_info(
                 block,
                 chunk_header.shard_id(),
                 chunk_header.height_created(),
+                epoch_info,
                 info.as_mut(),
                 show_missed_endorsements,
+                machine_readable,
                 endorsement_stats.entry(chunk_header.shard_id()).or_default(),
                 online_height,
                 warnings,
@@ -1074,17 +1113,29 @@ fn collect_validator_info(
         } else {
             validator_didnt_do_something(online_height, &chunk_producer);
             if let Some(info) = &mut info {
-                *info += &format!("{}: {} NOT PRODUCED", chunk_header.shard_id(), &chunk_producer);
+                if machine_readable {
+                    *info += &format!("{}N", epoch_info.get_validator_id(&chunk_producer).unwrap());
+                } else {
+                    *info +=
+                        &format!("{}: {} NOT PRODUCED", chunk_header.shard_id(), &chunk_producer);
+                }
             }
         }
         let shard_stats = chunk_stats.entry(chunk_header.shard_id()).or_default();
         let stats = shard_stats.entry(chunk_producer.clone()).or_default();
         stats.update(online_height, &chunk_producer, produced);
         if let Some(info) = &mut info {
-            *info += "\n";
+            if machine_readable {
+                *info += ","
+            } else {
+                *info += "\n";
+            }
         }
     }
-    if let Some(info) = &info {
+    if let Some(info) = &mut info {
+        if machine_readable {
+            *info += "]"
+        }
         println!("{}", info);
     }
     Ok(())
@@ -1208,6 +1259,7 @@ fn print_validator_stats(
     protocol_version: ProtocolVersion,
     print_every_height: bool,
     show_missed_endorsements: bool,
+    machine_readable: bool,
 ) -> anyhow::Result<Option<CryptoHash>> {
     let mut block_stats = HashMap::<AccountId, ProductionStats>::new();
     let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, ProductionStats>>::new();
@@ -1225,6 +1277,8 @@ fn print_validator_stats(
     };
     assert!(block.header().epoch_id() == epoch_id);
 
+    let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+
     let mut next_epoch_start_block_hash = None;
 
     loop {
@@ -1239,10 +1293,12 @@ fn print_validator_stats(
         collect_validator_info(
             epoch_manager,
             protocol_version,
+            &epoch_info,
             &block_producer,
             &block,
             print_every_height,
             show_missed_endorsements,
+            machine_readable,
             &mut chunk_stats,
             &mut endorsement_stats,
             &mut online_height,
@@ -1266,7 +1322,15 @@ fn print_validator_stats(
             stats.update(&mut online_height, &block_producer, false);
             validator_didnt_do_something(&mut online_height, &block_producer);
             if print_every_height {
-                println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
+                if machine_readable {
+                    println!(
+                        "{} {}N",
+                        height,
+                        epoch_info.get_validator_id(&block_producer).unwrap()
+                    );
+                } else {
+                    println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
+                }
             }
         }
 
@@ -1374,6 +1438,7 @@ pub(crate) fn validator_info(
     end_height: Option<u64>,
     print_every_height: bool,
     show_missed_endorsements: bool,
+    machine_readable: bool,
     near_config: NearConfig,
     store: Store,
 ) -> anyhow::Result<()> {
@@ -1419,6 +1484,7 @@ pub(crate) fn validator_info(
             protocol_version,
             print_every_height,
             show_missed_endorsements,
+            machine_readable,
         )?;
 
         match next_hash {
