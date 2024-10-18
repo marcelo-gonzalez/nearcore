@@ -51,6 +51,7 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Pointer;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -856,6 +857,45 @@ struct ValidatorInfoWarnings {
 }
 
 #[derive(Default)]
+struct ProductionStats {
+    produced: usize,
+    expected: usize,
+    produced_after_online: usize,
+    expected_after_online: usize,
+}
+
+impl std::fmt::Display for ProductionStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}/{} AFTER ONLINE: {}/{}",
+            self.produced, self.expected, self.produced_after_online, self.expected_after_online
+        )
+    }
+}
+
+impl ProductionStats {
+    fn update(
+        &mut self,
+        online_height: &HashMap<AccountId, Option<BlockHeight>>,
+        account_id: &AccountId,
+        produced: bool,
+    ) {
+        let online = validator_is_online(online_height, account_id);
+        if produced {
+            self.produced += 1;
+            if online {
+                self.produced_after_online += 1;
+            }
+        }
+        self.expected += 1;
+        if online {
+            self.expected_after_online += 1;
+        }
+    }
+}
+
+#[derive(Default)]
 struct ChunkEndorsementStats {
     endorsed: Vec<(AccountId, bool)>,
     didnt_endorse: Vec<(AccountId, bool)>,
@@ -866,17 +906,9 @@ struct ChunkEndorsementStats {
 
 #[derive(Default)]
 struct ValidatorEndorsementStats {
-    included: usize,
-    expected: usize,
+    stats: ProductionStats,
     total_staked: Balance,
     other_validators_total_staked: Balance,
-}
-
-fn percentage(numer: u64, denom: u64) -> Option<f64> {
-    if denom == 0 {
-        return None;
-    }
-    Some((100 * numer) as f64 / denom as f64)
 }
 
 fn add_endorsement_stats(
@@ -887,6 +919,7 @@ fn add_endorsement_stats(
     info: Option<&mut String>,
     show_missed_endorsements: bool,
     endorsement_stats: &mut HashMap<AccountId, ValidatorEndorsementStats>,
+    online_height: &mut HashMap<AccountId, Option<BlockHeight>>,
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
     let mut info = info.map(|info| (ChunkEndorsementStats::default(), info));
@@ -936,9 +969,11 @@ fn add_endorsement_stats(
         }
         let validator_stats = endorsement_stats.entry(validator_id.clone()).or_default();
         if has_endorsement {
-            validator_stats.included += 1;
+            validator_did_something(online_height, validator_id, block.header().height());
+        } else {
+            validator_didnt_do_something(online_height, validator_id);
         }
-        validator_stats.expected += 1;
+        validator_stats.stats.update(&online_height, validator_id, has_endorsement);
         validator_stats.total_staked += stake;
         validator_stats.other_validators_total_staked += total_stake;
     }
@@ -977,8 +1012,9 @@ fn collect_validator_info(
     block: &Block,
     print_every_height: bool,
     show_missed_endorsements: bool,
-    chunk_stats: &mut HashMap<ShardId, HashMap<AccountId, (usize, usize)>>,
+    chunk_stats: &mut HashMap<ShardId, HashMap<AccountId, ProductionStats>>,
     endorsement_stats: &mut HashMap<ShardId, HashMap<AccountId, ValidatorEndorsementStats>>,
+    online_height: &mut HashMap<AccountId, Option<BlockHeight>>,
     warnings: &mut ValidatorInfoWarnings,
 ) -> anyhow::Result<()> {
     let mut info = if print_every_height {
@@ -996,14 +1032,12 @@ fn collect_validator_info(
             block.header().height(),
             chunk_header.shard_id(),
         )?;
-        let shard_stats = chunk_stats.entry(chunk_header.shard_id()).or_default();
-        let (produced, expected) = shard_stats.entry(chunk_producer.clone()).or_default();
-        *expected += 1;
-        if chunk_header.height_included() == block.header().height() {
+        let produced = chunk_header.height_included() == block.header().height();
+        if produced {
             if let Some(info) = &mut info {
                 *info += &format!("{}: {} PRODUCED", chunk_header.shard_id(), &chunk_producer);
             }
-            *produced += 1;
+            validator_did_something(online_height, &chunk_producer, block.header().height());
             add_endorsement_stats(
                 epoch_manager,
                 block,
@@ -1012,13 +1046,18 @@ fn collect_validator_info(
                 info.as_mut(),
                 show_missed_endorsements,
                 endorsement_stats.entry(chunk_header.shard_id()).or_default(),
+                online_height,
                 warnings,
             )?;
         } else {
+            validator_didnt_do_something(online_height, &chunk_producer);
             if let Some(info) = &mut info {
                 *info += &format!("{}: {} NOT PRODUCED", chunk_header.shard_id(), &chunk_producer);
             }
         }
+        let shard_stats = chunk_stats.entry(chunk_header.shard_id()).or_default();
+        let stats = shard_stats.entry(chunk_producer.clone()).or_default();
+        stats.update(online_height, &chunk_producer, produced);
         if let Some(info) = &mut info {
             *info += "\n";
         }
@@ -1116,6 +1155,28 @@ fn balance_percentage_str(numer: Balance, denom: Balance) -> String {
     format!("{:.4}", (100 * numer) as f64 / denom as f64)
 }
 
+fn validator_is_online(
+    online_height: &HashMap<AccountId, Option<BlockHeight>>,
+    account_id: &AccountId,
+) -> bool {
+    online_height.get(account_id).map(|h| h.is_some()).unwrap_or(false)
+}
+
+fn validator_did_something(
+    online_height: &mut HashMap<AccountId, Option<BlockHeight>>,
+    account_id: &AccountId,
+    height: BlockHeight,
+) {
+    online_height.entry(account_id.clone()).or_default().get_or_insert(height);
+}
+
+fn validator_didnt_do_something(
+    online_height: &mut HashMap<AccountId, Option<BlockHeight>>,
+    account_id: &AccountId,
+) {
+    online_height.entry(account_id.clone()).or_default();
+}
+
 // print stats for the given epoch. Returns the first block hash that doesn't belong to this epoch.
 fn print_validator_stats(
     chain_store: &ChainStore,
@@ -1126,10 +1187,11 @@ fn print_validator_stats(
     print_every_height: bool,
     show_missed_endorsements: bool,
 ) -> anyhow::Result<Option<CryptoHash>> {
-    let mut block_stats = HashMap::<AccountId, (usize, usize)>::new();
-    let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, (usize, usize)>>::new();
+    let mut block_stats = HashMap::<AccountId, ProductionStats>::new();
+    let mut chunk_stats = HashMap::<ShardId, HashMap<AccountId, ProductionStats>>::new();
     let mut endorsement_stats =
         HashMap::<ShardId, HashMap<AccountId, ValidatorEndorsementStats>>::new();
+    let mut online_height = HashMap::<AccountId, Option<BlockHeight>>::new();
     let mut warnings = ValidatorInfoWarnings::default();
 
     let mut block = match chain_store.get_block_hash_by_height(epoch_start) {
@@ -1146,11 +1208,11 @@ fn print_validator_stats(
     loop {
         let block_producer = epoch_manager.get_block_producer(epoch_id, block.header().height())?;
 
-        let (produced_blocks, expected_blocks) =
-            block_stats.entry(block_producer.clone()).or_default();
+        let stats = block_stats.entry(block_producer.clone()).or_default();
 
-        *produced_blocks += 1;
-        *expected_blocks += 1;
+        // TODO consolidate these two
+        validator_did_something(&mut online_height, &block_producer, block.header().height());
+        stats.update(&mut online_height, &block_producer, true);
 
         collect_validator_info(
             epoch_manager,
@@ -1161,6 +1223,7 @@ fn print_validator_stats(
             show_missed_endorsements,
             &mut chunk_stats,
             &mut endorsement_stats,
+            &mut online_height,
             &mut warnings,
         )?;
 
@@ -1177,9 +1240,9 @@ fn print_validator_stats(
 
         for height in block.header().height() + 1..next_block.header().height() {
             let block_producer = epoch_manager.get_block_producer(epoch_id, height)?;
-            let (_produced_blocks, expected_blocks) =
-                block_stats.entry(block_producer.clone()).or_default();
-            *expected_blocks += 1;
+            let stats = block_stats.entry(block_producer.clone()).or_default();
+            stats.update(&mut online_height, &block_producer, false);
+            validator_didnt_do_something(&mut online_height, &block_producer);
             if print_every_height {
                 println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
             }
@@ -1195,14 +1258,21 @@ fn print_validator_stats(
     println!("\nBLOCK STATS:\n");
     let mut total_expected = 0;
     let mut total_produced = 0;
+    let mut total_expected_after_online = 0;
+    let mut total_produced_after_online = 0;
 
     let block_stats = sort_validator_info(block_stats);
-    for (account_id, (produced, expected)) in block_stats.iter() {
-        println!("{}: {}/{}", account_id, produced, expected);
-        total_expected += expected;
-        total_produced += produced;
+    for (account_id, stats) in block_stats.iter() {
+        println!("{}: {}", account_id, stats);
+        total_expected += stats.expected;
+        total_produced += stats.produced;
+        total_expected_after_online += stats.expected_after_online;
+        total_produced_after_online += stats.produced_after_online;
     }
-    println!("TOTAL: {}/{}", total_produced, total_expected);
+    println!(
+        "TOTAL: {}/{} TOTAL AFTER ONLINE: {}/{}",
+        total_produced, total_expected, total_produced_after_online, total_expected_after_online
+    );
 
     println!("\nCHUNK STATS:\n");
 
@@ -1210,42 +1280,70 @@ fn print_validator_stats(
     for (shard_id, chunk_stats) in chunk_stats.into_iter() {
         total_expected = 0;
         total_produced = 0;
+        total_expected_after_online = 0;
+        total_produced_after_online = 0;
         println!("\n------------ SHARD {} ------------", shard_id);
         let chunk_stats = sort_validator_info(chunk_stats);
-        for (account_id, (produced, expected)) in chunk_stats.iter() {
-            println!("{}: {}/{}", account_id, produced, expected);
-            total_expected += expected;
-            total_produced += produced;
+        for (account_id, stats) in chunk_stats.iter() {
+            println!("{}: {}", account_id, stats);
+            total_expected += stats.expected;
+            total_produced += stats.produced;
+            total_expected_after_online += stats.expected_after_online;
+            total_produced_after_online += stats.produced_after_online;
         }
-        println!("TOTAL: {}/{}", total_produced, total_expected);
+        println!(
+            "TOTAL: {}/{} TOTAL AFTER ONLINE: {}/{}",
+            total_produced,
+            total_expected,
+            total_produced_after_online,
+            total_expected_after_online
+        );
         match endorsement_stats.remove(&shard_id) {
             Some(endorsement_stats) => {
                 total_expected = 0;
                 total_produced = 0;
+                total_expected_after_online = 0;
+                total_produced_after_online = 0;
                 println!("\nENDORSEMENTS:");
                 println!("ACCOUNT ID | INCLUDED/EXPECTED | AVERAGE CHUNK VALIDATOR STAKE CONTRIBUTION PCT");
                 let endorsement_stats = sort_validator_info(endorsement_stats);
                 for (account_id, stats) in endorsement_stats.iter() {
                     println!(
-                        "{} | {}/{} | {}",
+                        "{} | {} | {}",
                         account_id,
-                        stats.included,
-                        stats.expected,
+                        stats.stats,
                         balance_percentage_str(
                             stats.total_staked,
                             stats.other_validators_total_staked
                         )
                     );
-                    total_expected += stats.expected;
-                    total_produced += stats.included;
+                    total_expected += stats.stats.expected;
+                    total_produced += stats.stats.produced;
+                    total_expected_after_online += stats.stats.expected_after_online;
+                    total_produced_after_online += stats.stats.produced_after_online;
                 }
-                println!("TOTAL: {}/{}", total_produced, total_expected);
+                println!(
+                    "TOTAL: {}/{} TOTAL AFTER ONLINE: {}/{}",
+                    total_produced,
+                    total_expected,
+                    total_produced_after_online,
+                    total_expected_after_online
+                );
             }
             None => {
                 println!("no endorsement stats for this shard");
             }
         }
     }
+    let online_height = sort_validator_info(online_height);
+    println!("\nVALIDATORS ONLINE AT:");
+    for (account_id, height) in online_height {
+        match height {
+            Some(height) => println!("{}: {}", account_id, height),
+            None => println!("{}: never", account_id),
+        }
+    }
+
     Ok(next_epoch_start_block_hash)
 }
 
