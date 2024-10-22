@@ -26,7 +26,7 @@ use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::account::id::AccountId;
 use near_primitives::apply::ApplyChunkReason;
-use near_primitives::block::{Block, BlockHeader};
+use near_primitives::block::Block;
 use near_primitives::epoch_info::EpochInfo;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -54,7 +54,6 @@ use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::collections::{HashMap, HashSet};
-use std::fmt::Pointer;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -1147,29 +1146,79 @@ fn sort_validator_info<K: Ord, V>(info: HashMap<K, V>) -> Vec<(K, V)> {
     info
 }
 
-fn print_catchup_info(
-    epoch_manager: &EpochManagerHandle,
-    header: &BlockHeader,
+fn is_block_producer(epoch_info: &EpochInfo, account_id: &AccountId) -> bool {
+    let Some(validator_id) = epoch_info.get_validator_id(account_id) else {
+        return false;
+    };
+    epoch_info.block_producers_settlement().contains(validator_id)
+}
+
+fn is_chunk_producer(epoch_info: &EpochInfo, account_id: &AccountId) -> bool {
+    let Some(validator_id) = epoch_info.get_validator_id(account_id) else {
+        return false;
+    };
+    epoch_info
+        .chunk_producers_settlement()
+        .iter()
+        .any(|chunk_producers| chunk_producers.contains(validator_id))
+}
+
+fn print_kickout_info(
+    epoch_info: &EpochInfo,
+    next_next_epoch_info: &EpochInfo,
 ) -> anyhow::Result<()> {
-    let next_epoch_id = match epoch_manager.get_next_epoch_id(header.hash()) {
-        Ok(id) => id,
-        Err(EpochError::EpochOutOfBounds(_)) => {
-            println!("no catchup state sync info available for this epoch");
-            return Ok(());
-        }
-        Err(e) => return Err(e.into()),
-    };
+    if next_next_epoch_info.validator_kickout().is_empty() {
+        println!("no validators kicked this epoch.");
+        return Ok(());
+    }
 
-    let epoch_info = epoch_manager.get_epoch_info(header.epoch_id())?;
-    let next_epoch_info = match epoch_manager.get_epoch_info(&next_epoch_id) {
-        Ok(info) => info,
-        Err(EpochError::EpochOutOfBounds(_)) => {
-            println!("no catchup state sync info available for this epoch");
-            return Ok(());
-        }
-        Err(e) => return Err(e.into()),
-    };
+    let mut kicked_stake = 0;
+    let mut block_producers_kicked = 0;
+    let mut chunk_producers_kicked = 0;
+    let mut num_kicked = 0;
+    println!("kickouts:");
+    for (account_id, reason) in next_next_epoch_info.validator_kickout() {
+        println!("{}: {:?}", account_id, reason);
 
+        let Some(validator) = epoch_info.get_validator_by_account(account_id) else {
+            continue;
+        };
+        kicked_stake += validator.stake();
+
+        num_kicked += 1;
+        if is_block_producer(epoch_info, account_id) {
+            block_producers_kicked += 1;
+        }
+        if is_chunk_producer(epoch_info, account_id) {
+            chunk_producers_kicked += 1;
+        }
+    }
+    let mut total_stake = 0;
+    let mut num_validators = 0;
+    let mut num_block_producers = 0;
+    let mut num_chunk_producers = 0;
+    for v in epoch_info.validators_iter() {
+        total_stake += v.stake();
+        num_validators += 1;
+        if is_block_producer(epoch_info, v.account_id()) {
+            num_block_producers += 1;
+        }
+        if is_chunk_producer(epoch_info, v.account_id()) {
+            num_chunk_producers += 1;
+        }
+    }
+    println!(
+        "{} out of {} kicked ({}% of stake)",
+        num_kicked,
+        num_validators,
+        100 * kicked_stake / total_stake
+    );
+    println!("{} out of {} block producers kicked", block_producers_kicked, num_block_producers);
+    println!("{} out of {} chunk producers kicked", chunk_producers_kicked, num_chunk_producers);
+    Ok(())
+}
+
+fn print_catchup_info(epoch_info: &EpochInfo, next_epoch_info: &EpochInfo) -> anyhow::Result<()> {
     let mut shard_assignments = HashMap::<AccountId, (HashSet<ShardId>, HashSet<ShardId>)>::new();
 
     println!("\nTHIS EPOCH CHUNK PRODUCERS:");
@@ -1429,6 +1478,7 @@ fn print_validator_stats(
             None => println!("{}: never", account_id),
         }
     }
+    println!("");
 
     Ok(next_epoch_start_block_hash)
 }
@@ -1466,17 +1516,28 @@ pub(crate) fn validator_info(
         }
 
         let protocol_version = epoch_manager.get_epoch_protocol_version(header.epoch_id())?;
-        let epoch_height = epoch_manager.get_epoch_info(header.epoch_id())?.epoch_height();
+        let epoch_info = epoch_manager.get_epoch_info(header.epoch_id())?;
         println!(
             "---------- epoch {} #{} protocol {} ----------",
             &header.epoch_id().0,
-            epoch_height,
+            epoch_info.epoch_height(),
             protocol_version
         );
 
-        print_catchup_info(&epoch_manager, &header)?;
+        let next_epoch_id = epoch_manager.get_next_epoch_id(header.hash())?;
 
-        let next_hash = print_validator_stats(
+        match epoch_manager.get_epoch_info(&next_epoch_id) {
+            Ok(next_epoch_info) => {
+                print_catchup_info(&epoch_info, &next_epoch_info)?;
+            }
+            Err(EpochError::EpochOutOfBounds(_)) => {
+                println!("no catchup state sync info available for this epoch");
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        let Some(next_hash) = print_validator_stats(
             &chain_store,
             &epoch_manager,
             header.epoch_id(),
@@ -1485,12 +1546,23 @@ pub(crate) fn validator_info(
             print_every_height,
             show_missed_endorsements,
             machine_readable,
-        )?;
-
-        match next_hash {
-            Some(next_hash) => block_hash = next_hash,
-            None => break,
+        )?
+        else {
+            break;
         };
+
+        let next_next_epoch_id = epoch_manager.get_next_epoch_id(&next_hash)?;
+
+        match epoch_manager.get_epoch_info(&next_next_epoch_id) {
+            Ok(next_next_epoch_info) => {
+                print_kickout_info(&epoch_info, &next_next_epoch_info)?;
+            }
+            Err(EpochError::EpochOutOfBounds(_)) => {
+                println!("no kickout info available for this epoch");
+            }
+            Err(e) => return Err(e.into()),
+        };
+        block_hash = next_hash;
     }
     Ok(())
 }
