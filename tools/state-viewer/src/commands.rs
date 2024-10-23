@@ -1196,6 +1196,37 @@ fn print_kickout_info(
     Ok(())
 }
 
+fn print_validators(epoch_info: &EpochInfo) {
+    let mut validators: Vec<_> = epoch_info.validators_iter().collect();
+    validators.sort_by(|left, right| right.stake().cmp(&left.stake()));
+
+    println!("\nVALIDATORS:");
+    for v in validators {
+        let validator_id = epoch_info.get_validator_id(v.account_id()).unwrap();
+        let chunk_shards: Vec<_> = epoch_info
+        .chunk_producers_settlement()
+        .iter()
+        .enumerate()
+        .filter(|(_, chunk_producers)| chunk_producers.contains(validator_id))
+        .map(|(shard_id, _)| shard_id as ShardId)
+        .collect();
+        println!(
+            "{}: stake {} | {} | {}",
+            v.account_id(), v.stake(),
+            if is_block_producer(epoch_info, v.account_id()) {
+                "producing blocks"
+            } else {
+                "not producing blocks"
+            },
+            if chunk_shards.is_empty() {
+                String::from("not producing chunks")
+            } else {
+                format!("producing chunks for: {:?}", chunk_shards)
+            }
+        );
+    }
+}
+
 fn print_catchup_info(epoch_info: &EpochInfo, next_epoch_info: &EpochInfo) -> anyhow::Result<()> {
     let mut shard_assignments = HashMap::<AccountId, (HashSet<ShardId>, HashSet<ShardId>)>::new();
 
@@ -1314,23 +1345,23 @@ fn print_validator_stats(
         let stats = block_stats.entry(block_producer.clone()).or_default();
 
         // TODO consolidate these two
-        validator_did_something(&mut online_height, &block_producer, block.header().height());
-        stats.update(&mut online_height, &block_producer, true);
+        // validator_did_something(&mut online_height, &block_producer, block.header().height());
+        // stats.update(&mut online_height, &block_producer, true);
 
-        collect_validator_info(
-            epoch_manager,
-            protocol_version,
-            &epoch_info,
-            &block_producer,
-            &block,
-            print_every_height,
-            show_missed_endorsements,
-            machine_readable,
-            &mut chunk_stats,
-            &mut endorsement_stats,
-            &mut online_height,
-            &mut warnings,
-        )?;
+        // collect_validator_info(
+        //     epoch_manager,
+        //     protocol_version,
+        //     &epoch_info,
+        //     &block_producer,
+        //     &block,
+        //     print_every_height,
+        //     show_missed_endorsements,
+        //     machine_readable,
+        //     &mut chunk_stats,
+        //     &mut endorsement_stats,
+        //     &mut online_height,
+        //     &mut warnings,
+        // )?;
 
         let next_hash = match chain_store.get_next_block_hash(block.hash()) {
             Ok(hash) => hash,
@@ -1343,29 +1374,33 @@ fn print_validator_stats(
             Err(e) => return Err(e.into()),
         };
 
-        for height in block.header().height() + 1..next_block.header().height() {
-            let block_producer = epoch_manager.get_block_producer(epoch_id, height)?;
-            let stats = block_stats.entry(block_producer.clone()).or_default();
-            stats.update(&mut online_height, &block_producer, false);
-            validator_didnt_do_something(&mut online_height, &block_producer);
-            if print_every_height {
-                if machine_readable {
-                    println!(
-                        "{} {}N",
-                        height,
-                        epoch_info.get_validator_id(&block_producer).unwrap()
-                    );
-                } else {
-                    println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
-                }
-            }
-        }
+        // for height in block.header().height() + 1..next_block.header().height() {
+        //     let block_producer = epoch_manager.get_block_producer(epoch_id, height)?;
+        //     let stats = block_stats.entry(block_producer.clone()).or_default();
+        //     stats.update(&mut online_height, &block_producer, false);
+        //     validator_didnt_do_something(&mut online_height, &block_producer);
+        //     if print_every_height {
+        //         if machine_readable {
+        //             println!(
+        //                 "{} {}N",
+        //                 height,
+        //                 epoch_info.get_validator_id(&block_producer).unwrap()
+        //             );
+        //         } else {
+        //             println!("{}: BLOCK PRODUCER: {}: NOT PRODUCED", height, &block_producer);
+        //         }
+        //     }
+        // }
 
         if next_block.header().epoch_id() != epoch_id {
             next_epoch_start_block_hash = Some(next_hash);
             break;
         }
         block = next_block;
+    }
+
+    if 1 < 2 {
+        return Ok(next_epoch_start_block_hash);
     }
 
     println!("\nBLOCK STATS:\n");
@@ -1504,6 +1539,7 @@ pub(crate) fn validator_info(
 
         let next_epoch_id = epoch_manager.get_next_epoch_id(header.hash())?;
 
+        print_validators(&epoch_info);
         match epoch_manager.get_epoch_info(&next_epoch_id) {
             Ok(next_epoch_info) => {
                 print_catchup_info(&epoch_info, &next_epoch_info)?;
