@@ -976,6 +976,8 @@ pub struct ValidatorInfoCmd {
     show_missed_endorsements: bool,
     #[clap(long)]
     machine_readable: bool,
+    #[clap(long)]
+    whole_epoch: bool,
 }
 
 impl ValidatorInfoCmd {
@@ -986,6 +988,7 @@ impl ValidatorInfoCmd {
             self.print_every_height,
             self.show_missed_endorsements,
             self.machine_readable,
+            self.whole_epoch,
             near_config,
             store,
         )
