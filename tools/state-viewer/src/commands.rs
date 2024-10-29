@@ -1303,8 +1303,8 @@ fn validator_didnt_do_something(
 fn print_validator_stats(
     chain_store: &ChainStore,
     epoch_manager: &EpochManagerHandle,
-    epoch_id: &EpochId,
-    epoch_start: BlockHeight,
+    start_block_hash: &CryptoHash,
+    end_height: Option<BlockHeight>,
     protocol_version: ProtocolVersion,
     print_every_height: bool,
     show_missed_endorsements: bool,
@@ -1317,21 +1317,21 @@ fn print_validator_stats(
     let mut online_height = HashMap::<AccountId, Option<BlockHeight>>::new();
     let mut warnings = ValidatorInfoWarnings::default();
 
-    let mut block = match chain_store.get_block_hash_by_height(epoch_start) {
-        Ok(hash) => chain_store.get_block(&hash)?,
-        Err(e) => {
-            return Err(e)
-                .with_context(|| format!("could not find epoch start block #{}", epoch_start))
-        }
-    };
-    assert!(block.header().epoch_id() == epoch_id);
+    let mut block = chain_store.get_block(&start_block_hash)?;
+    let epoch_id = *block.header().epoch_id();
 
-    let epoch_info = epoch_manager.get_epoch_info(epoch_id)?;
+    let epoch_info = epoch_manager.get_epoch_info(&epoch_id)?;
 
     let mut next_epoch_start_block_hash = None;
 
-    loop {
-        let block_producer = epoch_manager.get_block_producer(epoch_id, block.header().height())?;
+    'outer: loop {
+        if let Some(end_height) = end_height {
+            if block.header().height() >= end_height {
+                break;
+            }
+        }
+        let block_producer =
+            epoch_manager.get_block_producer(&epoch_id, block.header().height())?;
 
         let stats = block_stats.entry(block_producer.clone()).or_default();
 
@@ -1366,7 +1366,12 @@ fn print_validator_stats(
         };
 
         for height in block.header().height() + 1..next_block.header().height() {
-            let block_producer = epoch_manager.get_block_producer(epoch_id, height)?;
+            if let Some(end_height) = end_height {
+                if height >= end_height {
+                    break 'outer;
+                }
+            }
+            let block_producer = epoch_manager.get_block_producer(&epoch_id, height)?;
             let stats = block_stats.entry(block_producer.clone()).or_default();
             stats.update(&mut online_height, &block_producer, false);
             validator_didnt_do_something(&mut online_height, &block_producer);
@@ -1383,7 +1388,7 @@ fn print_validator_stats(
             }
         }
 
-        if next_block.header().epoch_id() != epoch_id {
+        if next_block.header().epoch_id() != &epoch_id {
             next_epoch_start_block_hash = Some(next_hash);
             break;
         }
@@ -1489,6 +1494,7 @@ pub(crate) fn validator_info(
     print_every_height: bool,
     show_missed_endorsements: bool,
     machine_readable: bool,
+    whole_epoch: bool,
     near_config: NearConfig,
     store: Store,
 ) -> anyhow::Result<()> {
@@ -1499,18 +1505,26 @@ pub(crate) fn validator_info(
 
     let mut block_hash = match start_height {
         // TODO: if the block doesn't exist, search for another in that epoch.
-        Some(height) => chain_store.get_block_hash_by_height(height)?,
+        Some(height) => {
+            let hash = chain_store.get_block_hash_by_height(height)?;
+            if whole_epoch {
+                let block_info = epoch_manager.get_block_info(&hash)?;
+                *block_info.epoch_first_block()
+            } else {
+                hash
+            }
+        }
         None => {
             let head = chain_store.head()?;
-            head.last_block_hash
+            let block_info = epoch_manager.get_block_info(&head.last_block_hash)?;
+            *block_info.epoch_first_block()
         }
     };
     loop {
         let header = chain_store.get_block_header(&block_hash)?;
-        let epoch_start = epoch_manager.get_epoch_start_height(header.hash())?;
 
         if let Some(end_height) = end_height {
-            if epoch_start > end_height {
+            if header.height() >= end_height {
                 break;
             }
         }
@@ -1537,11 +1551,12 @@ pub(crate) fn validator_info(
             Err(e) => return Err(e.into()),
         };
 
+        let print_end = if whole_epoch { None } else { end_height };
         let Some(next_hash) = print_validator_stats(
             &chain_store,
             &epoch_manager,
-            header.epoch_id(),
-            epoch_start,
+            &block_hash,
+            print_end,
             protocol_version,
             print_every_height,
             show_missed_endorsements,
