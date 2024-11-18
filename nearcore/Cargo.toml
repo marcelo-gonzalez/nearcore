@@ -69,6 +69,7 @@ near-rosetta-rpc = { workspace = true, optional = true }
 near-store.workspace = true
 near-telemetry.workspace = true
 near-vm-runner.workspace = true
+nix.workspace = true
 node-runtime.workspace = true
 near-config-utils.workspace = true
 

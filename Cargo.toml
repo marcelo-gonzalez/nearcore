@@ -285,7 +285,7 @@ near-vm-types = { path = "runtime/near-vm/types" }
 near-vm-vm = { path = "runtime/near-vm/vm" }
 near-vm-wast = { path = "runtime/near-vm/wast" }
 near-wallet-contract = { path = "runtime/near-wallet-contract" }
-nix = "0.24"
+nix = "0.25"
 node-runtime = { path = "runtime/runtime" }
 num-bigint = "0.3"
 num_cpus = "1.11"

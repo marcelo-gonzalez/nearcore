@@ -14,3 +14,5 @@ pub use actix_enabled as actix;
 pub use stats_disabled as stats;
 #[cfg(feature = "performance_stats")]
 pub use stats_enabled as stats;
+
+pub mod perf_stats;

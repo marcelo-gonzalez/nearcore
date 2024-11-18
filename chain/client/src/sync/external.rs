@@ -129,6 +129,12 @@ impl ExternalConnection {
         let res = self.put_file_impl(&file_type, data, shard_id, location).await;
         let is_ok = if res.is_ok() { "ok" } else { "error" };
         let elapsed = instant.elapsed();
+        tracing::info!(
+            "lllllllllll external put file {} ok: {} elapsed: {:?}",
+            location,
+            res.is_ok(),
+            &elapsed
+        );
         metrics::STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED
             .with_label_values(&[&shard_id.to_string(), is_ok, &file_type.to_string()])
             .observe(elapsed.as_secs_f64());

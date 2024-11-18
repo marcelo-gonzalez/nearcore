@@ -17,6 +17,7 @@ use near_client::sync::external::{
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_performance_metrics::perf_stats::{display_stats, instrument};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
@@ -26,6 +27,18 @@ use rand::{thread_rng, Rng};
 use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+
+fn log_usage<F, T, E>(func: F, sync_hash: &CryptoHash, shard_id: ShardId, msg: &str) -> Result<T, E>
+where
+    F: FnOnce() -> Result<T, E>,
+{
+    let (ret, stats) = instrument(func);
+    tracing::info!(
+        target: "state_sync_dump", %sync_hash, ?shard_id, thread_id = ?std::thread::current().id(),
+        "lllllllllll {}: {} result: {:?}", msg, display_stats(&stats), ret.as_ref().map(|_| ()).map_err(|_| ())
+    );
+    ret
+}
 
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
@@ -351,7 +364,7 @@ async fn state_sync_dump(
     validator: MutableValidatorSigner,
     keep_running: Arc<AtomicBool>,
 ) {
-    tracing::info!(target: "state_sync_dump", ?shard_id, "Running StateSyncDump loop");
+    tracing::info!(target: "state_sync_dump", ?shard_id, thread_id = ?std::thread::current().id(), "lllllllllll Running StateSyncDump loop");
 
     if restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", ?shard_id, "Dropped existing progress");
@@ -402,12 +415,18 @@ async fn state_sync_dump(
                             Ok(true) => true,
                             // Header is missing
                             Ok(false) => {
+                                let header = log_usage(
+                                    || get_serialized_header(shard_id, sync_hash, &chain),
+                                    &sync_hash,
+                                    shard_id,
+                                    "get serialized header",
+                                );
                                 upload_state_header(
                                     &chain_id,
                                     &epoch_id,
                                     epoch_height,
                                     shard_id,
-                                    get_serialized_header(shard_id, sync_hash, &chain),
+                                    header,
                                     &external,
                                 )
                                 .await
@@ -628,17 +647,34 @@ fn obtain_and_store_state_part(
     num_parts: u64,
     chain: &Chain,
 ) -> Result<Vec<u8>, Error> {
-    let state_part = runtime.obtain_state_part(
+    let state_part = log_usage(
+        || {
+            runtime.obtain_state_part(
+                shard_id,
+                sync_prev_prev_hash,
+                state_root,
+                PartId::new(part_id, num_parts),
+            )
+        },
+        &sync_hash,
         shard_id,
-        sync_prev_prev_hash,
-        state_root,
-        PartId::new(part_id, num_parts),
-    )?;
+        &format!("obtain part {}", part_id),
+    );
+    let state_part = state_part?;
 
     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-    let mut store_update = chain.chain_store().store().store_update();
-    store_update.set(DBCol::StateParts, &key, &state_part);
-    store_update.commit()?;
+
+    let res = log_usage(
+        || {
+            let mut store_update = chain.chain_store().store().store_update();
+            store_update.set(DBCol::StateParts, &key, &state_part);
+            store_update.commit()
+        },
+        &sync_hash,
+        shard_id,
+        &format!("store part {}", part_id),
+    );
+    res?;
     Ok(state_part)
 }
 
