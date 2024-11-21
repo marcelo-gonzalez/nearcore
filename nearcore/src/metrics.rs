@@ -41,6 +41,7 @@ pub(crate) static COLD_STORE_COPY_RESULT: LazyLock<IntCounterVec> = LazyLock::ne
     .unwrap()
 });
 
+// This really refers to the time to obtain and upload each state part, but the name is kept for compatibility
 pub(crate) static STATE_SYNC_DUMP_ITERATION_ELAPSED: LazyLock<HistogramVec> = LazyLock::new(|| {
     try_create_histogram_vec(
         "near_state_sync_dump_iteration_elapsed_sec",

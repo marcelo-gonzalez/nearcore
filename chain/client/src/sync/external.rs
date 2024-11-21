@@ -120,6 +120,7 @@ impl ExternalConnection {
     /// Wrapper for adding is_ok to the metric labels.
     pub async fn put_file(
         &self,
+        // TODO: ref
         file_type: StateFileType,
         data: &[u8],
         shard_id: ShardId,
