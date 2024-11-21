@@ -375,16 +375,16 @@ impl PartUploader {
             .with_label_values(&[&self.shard_id.to_string()])
             .start_timer();
         if !self.parts_missing.read().unwrap().contains(&part_idx) {
-            tracing::info!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, %part_idx, "xxxxxx upload_state_part task part already uploaded");
+            tracing::info!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, %part_idx, thread_id = ?std::thread::current().id(), "xxxxxx upload_state_part task ret part already uploaded");
             self.inc_parts_dumped();
             return Ok(());
         }
-        tracing::info!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, %part_idx, "xxxxxx upload_state_part task start");
+        tracing::info!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, %part_idx, thread_id = ?std::thread::current().id(), "xxxxxx upload_state_part task start");
         let part_id = PartId::new(part_idx, self.num_parts);
 
         let state_part = loop {
             if self.canceled.load(Ordering::Relaxed) {
-                tracing::warn!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "xxxxxx upload_state_part task canceled 0");
+                tracing::warn!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "xxxxxx upload_state_part task ret canceled 0");
                 return Ok(());
             }
             let state_part = {
@@ -427,7 +427,7 @@ impl PartUploader {
         );
         loop {
             if self.canceled.load(Ordering::Relaxed) {
-                tracing::warn!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "xxxxxx upload_state_part task canceled 1");
+                tracing::warn!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "xxxxxx upload_state_part task ret canceled 1");
                 return Ok(());
             }
             match self
@@ -443,7 +443,7 @@ impl PartUploader {
                             &self.shard_id.to_string(),
                         ])
                         .inc_by(state_part.len() as u64);
-                    tracing::debug!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "xxxxxx upload_state_part task Uploaded state part.");
+                    tracing::debug!(target: "state_sync_dump", shard_id = %self.shard_id, epoch_height=%self.epoch_height, epoch_id=?&self.epoch_id, ?part_id, "xxxxxx upload_state_part task ret Uploaded state part.");
                     return Ok(());
                 }
                 Err(error) => {
@@ -840,7 +840,7 @@ impl StateDumper {
                 }
             }
         };
-        tracing::warn!(target: "state_sync_dump", epoch_height=%dump.epoch_height, epoch_id=?&dump.epoch_id, "xxxxxx spawn part getters");
+        tracing::warn!(target: "state_sync_dump", epoch_height=%dump.epoch_height, epoch_id=?&dump.epoch_id, thread_id = ?std::thread::current().id(), "xxxxxx spawn part getters");
         self.future_spawner.spawn_boxed("upload_part", fut.boxed());
     }
 
@@ -987,7 +987,7 @@ async fn state_sync_dump(
     keep_running: Arc<AtomicBool>,
     future_spawner: Arc<dyn FutureSpawner>,
 ) -> anyhow::Result<()> {
-    tracing::info!(target: "state_sync_dump", "Running StateSyncDump loop");
+    tracing::info!(target: "state_sync_dump", thread_id = ?std::thread::current().id(), "Running StateSyncDump loop");
 
     let mut dumper = StateDumper::new(
         clock.clone(),
