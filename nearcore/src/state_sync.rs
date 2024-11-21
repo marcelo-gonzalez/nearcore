@@ -122,6 +122,8 @@ impl StateSyncDumper {
                 chain_id.clone(),
                 external.clone(),
                 dump_config.iteration_delay.unwrap_or(Duration::seconds(10)),
+                dump_config.max_tasks,
+                dump_config.max_comp_tasks,
                 self.validator.clone(),
                 keep_running.clone(),
                 self.future_spawner.clone(),
@@ -298,6 +300,7 @@ struct StateDumper {
     external: ExternalConnection,
     future_spawner: Arc<dyn FutureSpawner>,
     obtain_parts: Arc<Semaphore>,
+    max_tasks: usize,
 }
 
 // Stores needed data for use in part upload futures
@@ -498,6 +501,8 @@ impl StateDumper {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: Arc<dyn RuntimeAdapter>,
         external: ExternalConnection,
+        max_tasks: usize,
+        max_comp_tasks: usize,
         future_spawner: Arc<dyn FutureSpawner>,
     ) -> Self {
         Self {
@@ -511,7 +516,8 @@ impl StateDumper {
             current_dump: CurrentDump::None,
             external,
             future_spawner,
-            obtain_parts: Arc::new(Semaphore::new(4)),
+            obtain_parts: Arc::new(Semaphore::new(max_comp_tasks)),
+            max_tasks,
         }
     }
 
@@ -669,7 +675,7 @@ impl StateDumper {
                     None
                 }
             })
-            .buffer_unordered(10)
+            .buffer_unordered(self.max_tasks)
             .collect::<Vec<_>>()
             .await;
         for shard_id in headers_stored {
@@ -703,7 +709,7 @@ impl StateDumper {
             .map(|(uploader, shard_id, header)| async move {
                 uploader.upload_header(shard_id, header).await
             })
-            .buffer_unordered(10)
+            .buffer_unordered(self.max_tasks)
             .collect::<()>()
             .await;
 
@@ -757,6 +763,7 @@ impl StateDumper {
         // We randomize so different nodes uploading parts don't try to upload in the same order
         tasks.shuffle(&mut thread_rng());
 
+        let max_tasks = self.max_tasks;
         let future_spawner = self.future_spawner.clone();
         let fut = async move {
             let mut tasks = tokio_stream::iter(tasks)
@@ -766,7 +773,7 @@ impl StateDumper {
                     let task = respawn_for_parallelism(&*future_spawner, "upload part", task);
                     async move { (shard_id, task.await) }
                 })
-                .buffer_unordered(10);
+                .buffer_unordered(max_tasks);
 
             while let Some((shard_id, result)) = tasks.next().await {
                 let std::collections::hash_map::Entry::Occupied(mut e) = senders.entry(shard_id)
@@ -923,6 +930,8 @@ async fn state_sync_dump(
     chain_id: String,
     external: ExternalConnection,
     iteration_delay: Duration,
+    max_tasks: usize,
+    max_comp_tasks: usize,
     validator: MutableValidatorSigner,
     keep_running: Arc<AtomicBool>,
     future_spawner: Arc<dyn FutureSpawner>,
@@ -938,6 +947,8 @@ async fn state_sync_dump(
         epoch_manager,
         runtime,
         external,
+        max_tasks,
+        max_comp_tasks,
         future_spawner,
     );
     dumper.init().await?;
@@ -973,6 +984,8 @@ async fn do_state_sync_dump(
     chain_id: String,
     external: ExternalConnection,
     iteration_delay: Duration,
+    max_tasks: usize,
+    max_comp_tasks: usize,
     validator: MutableValidatorSigner,
     keep_running: Arc<AtomicBool>,
     future_spawner: Arc<dyn FutureSpawner>,
@@ -986,6 +999,8 @@ async fn do_state_sync_dump(
         chain_id,
         external,
         iteration_delay,
+        max_tasks,
+        max_comp_tasks,
         validator,
         keep_running,
         future_spawner,

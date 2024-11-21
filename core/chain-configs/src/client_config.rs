@@ -85,6 +85,14 @@ fn default_external_storage_fallback_threshold() -> u64 {
     DEFAULT_EXTERNAL_STORAGE_FALLBACK_THRESHOLD
 }
 
+fn default_max_comp_tasks() -> usize {
+    4
+}
+
+fn default_max_tasks() -> usize {
+    20
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExternalStorageConfig {
     /// Location of state parts.
@@ -137,6 +145,11 @@ pub struct DumpConfig {
     /// Location of a json file with credentials allowing write access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials_file: Option<PathBuf>,
+
+    #[serde(default = "default_max_tasks")]
+    pub max_tasks: usize,
+    #[serde(default = "default_max_comp_tasks")]
+    pub max_comp_tasks: usize,
 }
 
 /// Configures how to fetch state parts during state sync.
