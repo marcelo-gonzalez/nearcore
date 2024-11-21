@@ -19,6 +19,7 @@ use near_client::sync::external::{
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_performance_metrics::perf_stats::{display_stats, instrument};
 use near_primitives::block::BlockHeader;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
@@ -36,6 +37,18 @@ use tokio::sync::Semaphore;
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
 pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
+
+fn log_usage<F, T, E>(func: F, sync_hash: &CryptoHash, shard_id: ShardId, msg: &str) -> Result<T, E>
+where
+    F: FnOnce() -> Result<T, E>,
+{
+    let (ret, stats) = instrument(func);
+    tracing::info!(
+        target: "state_sync_dump", %sync_hash, ?shard_id, thread_id = ?std::thread::current().id(),
+        "lllllllllll {}: {} result: {:?}", msg, display_stats(&stats), ret.as_ref().map(|_| ()).map_err(|_| ())
+    );
+    ret
+}
 
 pub struct StateSyncDumper {
     pub clock: Clock,
@@ -370,12 +383,20 @@ impl PartUploader {
             }
             let state_part = {
                 let _permit = self.obtain_parts.acquire().await.unwrap();
-                self.runtime.obtain_state_part(
-                    self.shard_id,
+                let state_part = log_usage(
+                    || {
+                        self.runtime.obtain_state_part(
+                            self.shard_id,
+                            &self.sync_prev_prev_hash,
+                            &self.state_root,
+                            part_id,
+                        )
+                    },
                     &self.sync_prev_prev_hash,
-                    &self.state_root,
-                    part_id,
-                )
+                    self.shard_id,
+                    &format!("obtain part {:?}", &part_id),
+                );
+                state_part
             };
             match state_part {
                 Ok(state_part) => {
@@ -567,18 +588,32 @@ impl StateDumper {
         shard_id: ShardId,
         sync_hash: &CryptoHash,
     ) -> anyhow::Result<(ShardDump, oneshot::Sender<anyhow::Result<()>>)> {
-        let state_header =
-            self.chain.get_state_response_header(shard_id, *sync_hash).with_context(|| {
-                format!("Failed getting state response header for {} {}", shard_id, sync_hash)
-            })?;
-        let state_root = state_header.chunk_prev_state_root();
-        let num_parts = state_header.num_state_parts();
-        metrics::STATE_SYNC_DUMP_NUM_PARTS_TOTAL
-            .with_label_values(&[&shard_id.to_string()])
-            .set(num_parts.try_into().unwrap_or(i64::MAX));
+        let res = log_usage(
+            || {
+                let state_header = self
+                    .chain
+                    .get_state_response_header(shard_id, *sync_hash)
+                    .with_context(|| {
+                        format!(
+                            "Failed getting state response header for {} {}",
+                            shard_id, sync_hash
+                        )
+                    })?;
+                let state_root = state_header.chunk_prev_state_root();
+                let num_parts = state_header.num_state_parts();
+                metrics::STATE_SYNC_DUMP_NUM_PARTS_TOTAL
+                    .with_label_values(&[&shard_id.to_string()])
+                    .set(num_parts.try_into().unwrap_or(i64::MAX));
 
-        let mut header_bytes: Vec<u8> = Vec::new();
-        state_header.serialize(&mut header_bytes)?;
+                let mut header_bytes: Vec<u8> = Vec::new();
+                state_header.serialize(&mut header_bytes)?;
+                anyhow::Ok((state_root, header_bytes, num_parts))
+            },
+            sync_hash,
+            shard_id,
+            "get serialized header",
+        );
+        let (state_root, header_bytes, num_parts) = res?;
         let (sender, receiver) = oneshot::channel();
         Ok((
             ShardDump {
