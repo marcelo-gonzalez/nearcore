@@ -167,6 +167,7 @@ impl TrieStorageUpdate<'_> {
         node: usize,
     ) -> Result<TrieChanges, StorageError> {
         let mut stack: Vec<(usize, FlattenNodesCrumb)> = Vec::new();
+        println!("flatten_nodes push root {}", node);
         stack.push((node, FlattenNodesCrumb::Entering));
         let mut last_hash = CryptoHash::default();
         let mut buffer: Vec<u8> = Vec::new();
@@ -185,11 +186,18 @@ impl TrieStorageUpdate<'_> {
                     }
                     FlattenNodesCrumb::AtChild(mut new_children, mut i) => {
                         if i > 0 && children[(i - 1) as usize].is_some() {
+                            println!(
+                                "flatten_nodes AtChild set child {} {} {}",
+                                node,
+                                i - 1,
+                                &last_hash
+                            );
                             new_children[i - 1] = Some(last_hash);
                         }
                         while i < 16 {
                             match &children[i as usize] {
                                 Some(GenericNodeOrIndex::Updated(handle)) => {
+                                    println!("flatten_nodes AtChild push updated {} {}", node, i);
                                     stack.push((
                                         node,
                                         FlattenNodesCrumb::AtChild(new_children, i + 1),
@@ -198,6 +206,10 @@ impl TrieStorageUpdate<'_> {
                                     continue 'outer;
                                 }
                                 Some(GenericNodeOrIndex::Old(hash)) => {
+                                    println!(
+                                        "flatten_nodes AtChild old child {} {} {}",
+                                        node, i, hash
+                                    );
                                     new_children[i] = Some(*hash);
                                 }
                                 None => {}
@@ -205,6 +217,11 @@ impl TrieStorageUpdate<'_> {
                             i += 1;
                         }
                         let new_value = (*value).map(|value| self.flatten_value(value));
+                        println!(
+                            "flatten_nodes AtChild new value {} {:?}",
+                            node,
+                            new_value.as_ref().map(|v| &v.hash)
+                        );
                         RawTrieNode::branch(*new_children, new_value)
                     }
                     FlattenNodesCrumb::Exiting => unreachable!(),
@@ -212,15 +229,18 @@ impl TrieStorageUpdate<'_> {
                 GenericUpdatedTrieNode::Extension { extension, child } => match position {
                     FlattenNodesCrumb::Entering => match child {
                         GenericNodeOrIndex::Updated(child) => {
+                            println!("flatten_nodes Extension Entering {} {}", node, child);
                             stack.push((node, FlattenNodesCrumb::Exiting));
                             stack.push((*child, FlattenNodesCrumb::Entering));
                             continue;
                         }
                         GenericNodeOrIndex::Old(hash) => {
+                            println!("flatten_nodes Extension Entering Old {} {}", node, hash);
                             RawTrieNode::Extension(extension.to_vec(), *hash)
                         }
                     },
                     FlattenNodesCrumb::Exiting => {
+                        println!("flatten_nodes Extension Exiting {} {}", node, &last_hash);
                         RawTrieNode::Extension(extension.to_vec(), last_hash)
                     }
                     _ => unreachable!(),
@@ -229,12 +249,14 @@ impl TrieStorageUpdate<'_> {
                     let key = extension.to_vec();
                     let value = *value;
                     let value = self.flatten_value(value);
+                    println!("flatten_nodes Leaf {} {}", node, &value.hash);
                     RawTrieNode::Leaf(key, value)
                 }
             };
             let raw_node_with_size = RawTrieNodeWithSize { node: raw_node, memory_usage };
             raw_node_with_size.serialize(&mut buffer).unwrap();
             let key = hash(&buffer);
+            println!("flatten_nodes add node {} {}", node, &key);
 
             self.refcount_changes.add(key, buffer.clone(), 1);
             buffer.clear();
