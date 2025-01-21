@@ -477,6 +477,10 @@ impl TrieRefcountAddition {
     pub fn revert(&self) -> TrieRefcountSubtraction {
         TrieRefcountSubtraction::new(self.trie_node_or_value_hash, self.rc)
     }
+
+    pub fn rc(&self) -> std::num::NonZeroU32 {
+        self.rc
+    }
 }
 
 impl TrieRefcountSubtraction {

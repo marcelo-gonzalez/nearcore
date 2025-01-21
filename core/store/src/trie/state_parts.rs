@@ -257,17 +257,29 @@ impl Trie {
         let final_part_creation_timer = metrics::GET_STATE_PART_COMBINE_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
-        let boundary_nodes_storage: HashMap<_, _> =
-            path_boundary_nodes.iter().map(|entry| (hash(entry), entry.clone())).collect();
+        let boundary_nodes_storage: HashMap<_, _> = path_boundary_nodes
+            .iter()
+            .map(|entry| {
+                let h = hash(entry);
+                println!("boundary_nodes_storage {} {} {:?}", &h, entry.len(), &entry);
+                (h, entry.clone())
+            })
+            .collect();
         let mut disk_read_hashes: HashSet<_> = boundary_nodes_storage.keys().cloned().collect();
         disk_read_hashes.extend(value_refs.iter().map(|(_, hash)| hash));
         let mut all_nodes: HashMap<CryptoHash, Arc<[u8]>> = HashMap::new();
         all_nodes.extend(boundary_nodes_storage);
-        all_nodes.extend(
-            local_state_part_nodes
-                .iter()
-                .map(|entry| (*entry.hash(), entry.payload().to_vec().into())),
-        );
+        all_nodes.extend(local_state_part_nodes.iter().map(|entry| {
+            let h = *entry.hash();
+            println!(
+                "local_state_part_nodes {} len {} rc {} {:?}",
+                &h,
+                entry.payload().len(),
+                entry.rc(),
+                entry.payload()
+            );
+            (h, entry.payload().to_vec().into())
+        }));
         let final_trie =
             Trie::new(Arc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
 
