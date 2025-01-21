@@ -825,6 +825,7 @@ pub(crate) fn view_chain(
         .expect("Failed to start Epoch Manager");
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
+    println!("shards {} {:?}", &block.header().epoch_id().0, shard_layout.shard_uids().collect::<Vec<_>>());
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
     for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {
