@@ -212,6 +212,7 @@ impl<'a> DiskTrieIterator<'a> {
                 StorageError::MissingTrieValue(MissingTrieValueContext::TrieIterator, *hash)
             })?);
         }
+        println!("descend_into_node push trail {:?}", &node);
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())
     }
@@ -250,6 +251,7 @@ impl<'a> DiskTrieIterator<'a> {
                     }
                     _ => {}
                 }
+                println!("iter_step PopTrail");
                 IterStep::PopTrail
             }
             (CrumbStatus::At, TrieNode::Branch(_, Some(value))) => {
@@ -257,9 +259,13 @@ impl<'a> DiskTrieIterator<'a> {
                     ValueHandle::HashAndSize(value) => value.hash,
                     ValueHandle::InMemory(_node) => unreachable!(),
                 };
+                println!("iter_step At Branch -> Value {}", &hash);
                 IterStep::Value(hash)
             }
-            (CrumbStatus::At, TrieNode::Branch(_, None)) => IterStep::Continue,
+            (CrumbStatus::At, TrieNode::Branch(_, None)) => {
+                println!("iter_step At Branch -> Continue");
+                IterStep::Continue
+            }
             (CrumbStatus::At, TrieNode::Leaf(key, value)) => {
                 let hash = match value {
                     ValueHandle::HashAndSize(value) => value.hash,
@@ -267,10 +273,12 @@ impl<'a> DiskTrieIterator<'a> {
                 };
                 let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
+                println!("iter_step At Leaf -> Value {}", &hash);
                 IterStep::Value(hash)
             }
             (CrumbStatus::At, TrieNode::Extension(key, child)) => {
                 let hash = *child.unwrap_hash();
+                println!("iter_step At Extension {:?} -> Value {}", key, &hash);
                 let key = NibbleSlice::from_encoded(key).0;
                 self.key_nibbles.extend(key.iter());
                 IterStep::Descend(hash)
@@ -283,7 +291,9 @@ impl<'a> DiskTrieIterator<'a> {
                     if i != 0 {
                         *self.key_nibbles.last_mut().expect("Pushed child value before") = i;
                     }
-                    IterStep::Descend(*child.unwrap_hash())
+                    let h = *child.unwrap_hash();
+                    println!("iter_step AtChild {} Branch -> Value {}", i, &h);
+                    IterStep::Descend(h)
                 } else {
                     IterStep::Continue
                 }
@@ -336,7 +346,7 @@ impl<'a> DiskTrieIterator<'a> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash =
             self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false);
-        println!("visit_nodes_interval {:?} {:?} last {:?}", path_begin, path_end, &last_hash);
+        println!("visit_nodes_interval {:?} trail {:?} last {:?}", path_begin, &self.trail, &last_hash);
         let last_hash = last_hash?;
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {
