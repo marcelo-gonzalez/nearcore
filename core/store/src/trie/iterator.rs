@@ -346,7 +346,10 @@ impl<'a> DiskTrieIterator<'a> {
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash =
             self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false);
-        println!("visit_nodes_interval {:?} trail {:?} last {:?}", path_begin, &self.trail, &last_hash);
+        println!(
+            "visit_nodes_interval {:?} trail {:?} last {:?}",
+            path_begin, &self.trail, &last_hash
+        );
         let last_hash = last_hash?;
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {

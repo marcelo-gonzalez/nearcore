@@ -261,7 +261,18 @@ impl Trie {
             .iter()
             .map(|entry| {
                 let h = hash(entry);
-                println!("boundary_nodes_storage {} {} {:?}", &h, entry.len(), &entry);
+                let node = if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&entry) {
+                    Some(TrieNodeWithSize::from_raw(node))
+                } else {
+                    None
+                };
+                println!(
+                    "boundary_nodes_storage {} {} {:?} node {:?}",
+                    &h,
+                    entry.len(),
+                    &entry,
+                    node
+                );
                 (h, entry.clone())
             })
             .collect();
@@ -271,14 +282,21 @@ impl Trie {
         all_nodes.extend(boundary_nodes_storage);
         all_nodes.extend(local_state_part_nodes.iter().map(|entry| {
             let h = *entry.hash();
+            let n = entry.payload().to_vec();
+            let node = if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&n) {
+                Some(TrieNodeWithSize::from_raw(node))
+            } else {
+                None
+            };
             println!(
-                "local_state_part_nodes {} len {} rc {} {:?}",
+                "local_state_part_nodes {} len {} rc {} {:?} node {:?}",
                 &h,
                 entry.payload().len(),
                 entry.rc(),
-                entry.payload()
+                &n,
+                &node,
             );
-            (h, entry.payload().to_vec().into())
+            (h, n.into())
         }));
         let final_trie =
             Trie::new(Arc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
