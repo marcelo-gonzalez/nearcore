@@ -237,9 +237,12 @@ pub(crate) fn view_flat(
             .get_shard_layout_from_prev_block(&snapshot_hash)
             .context("get shard layout")?;
         let c = tries.state_snapshot_config();
-        let dir = near_store::ShardTries::get_state_snapshot_base_dir(&snapshot_hash, &c.home_dir,
+        let dir = near_store::ShardTries::get_state_snapshot_base_dir(
+            &snapshot_hash,
+            &c.home_dir,
             &c.hot_store_path,
-            &c.state_snapshot_subdir);
+            &c.state_snapshot_subdir,
+        );
 
         println!("opening DB at {}", dir.display());
         let store_opener = near_store::NodeStorage::opener(
@@ -825,7 +828,11 @@ pub(crate) fn view_chain(
         .expect("Failed to start Epoch Manager");
     let shard_layout = epoch_manager.get_shard_layout(block.header().epoch_id()).unwrap();
 
-    println!("shards {} {:?}", &block.header().epoch_id().0, shard_layout.shard_uids().collect::<Vec<_>>());
+    println!(
+        "shards {} {:?}",
+        &block.header().epoch_id().0,
+        shard_layout.shard_uids().collect::<Vec<_>>()
+    );
     let mut chunk_extras = vec![];
     let mut chunks = vec![];
     for (shard_index, chunk_header) in block.chunks().iter_deprecated().enumerate() {

@@ -226,13 +226,18 @@ impl Trie {
             .collect::<Vec<_>>();
         let values_read_duration = values_read_timer.stop_and_record();
 
+        println!("get_trie_nodes {} inlined {} lookup", values_inlined, value_refs.len());
         // 2. Lookup Referenced values in State. Note that FlatStorage snapshots don't have State.
         let lookup_values_timer = metrics::GET_STATE_PART_LOOKUP_REF_VALUES_ELAPSED
             .with_label_values(&[&shard_id.to_string()])
             .start_timer();
         let looked_up_value_refs: Vec<_> = value_refs
             .iter()
-            .map(|(k, hash)| Ok((k.clone(), Some(state_trie.retrieve_value(hash)?.to_vec()))))
+            .map(|(k, hash)| {
+                let rv = state_trie.retrieve_value(hash);
+                println!("get_trie_nodes lookup {}: {:?}", &hash, rv.as_ref().map(|v| v.len()));
+                Ok((k.clone(), Some(rv?.to_vec())))
+            })
             .collect::<Result<_, StorageError>>()
             .unwrap();
         all_state_part_items.extend(looked_up_value_refs.iter().cloned());
@@ -266,7 +271,11 @@ impl Trie {
         let final_trie =
             Trie::new(Arc::new(TrieMemoryPartialStorage::new(all_nodes)), self.root, None);
 
-        final_trie.visit_nodes_for_state_part(part_id)?;
+        let r = final_trie.visit_nodes_for_state_part(part_id);
+        if r.is_err() {
+            println!("get_trie_nodes visit_nodes_for_state_part err");
+        }
+        r?;
         let final_trie_storage = final_trie.storage.as_partial_storage().unwrap();
         let final_state_part_nodes = final_trie_storage.partial_state();
         let PartialState::TrieValues(trie_values) = &final_state_part_nodes;
@@ -348,7 +357,7 @@ impl Trie {
             TrieNode::Leaf(key, _) => {
                 let (slice, _) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
-
+                println!("find_child extend leaf {:?}", slice.iter().collect::<Vec<_>>());
                 // Leaf must contain value, so we found the boundary.
                 Ok(false)
             }
@@ -365,6 +374,7 @@ impl Trie {
                     if *memory_skipped + child.memory_usage > memory_threshold {
                         core::mem::drop(iter);
                         key_nibbles.push(index);
+                        println!("find_child descend child {}", index);
                         *node = child;
                         return Ok(true);
                     }
@@ -383,6 +393,7 @@ impl Trie {
                 };
                 let (slice, _) = NibbleSlice::from_encoded(key);
                 key_nibbles.extend(slice.iter());
+                println!("find_child extend extension {:?}", slice.iter().collect::<Vec<_>>());
                 *node = child;
                 Ok(true)
             }
@@ -403,12 +414,14 @@ impl Trie {
         let mut key_nibbles: Vec<u8> = Vec::new();
         let mut node = root_node.clone();
         let mut memory_skipped = 0u64;
+        println!("find_node_in_dfs_order {} start", memory_threshold);
         while self.find_child_in_dfs_order(
             memory_threshold,
             &mut node,
             &mut memory_skipped,
             &mut key_nibbles,
         )? {}
+        println!("find_node_in_dfs_order {} end", memory_threshold);
         Ok(key_nibbles)
     }
 

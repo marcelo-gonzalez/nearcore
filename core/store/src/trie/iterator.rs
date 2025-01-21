@@ -335,7 +335,9 @@ impl<'a> DiskTrieIterator<'a> {
         .entered();
         let path_begin_encoded = NibbleSlice::encode_nibbles(path_begin, true);
         let last_hash =
-            self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false)?;
+            self.seek_nibble_slice(NibbleSlice::from_encoded(&path_begin_encoded).0, false);
+        println!("visit_nodes_interval {:?} {:?} last {:?}", path_begin, path_end, &last_hash);
+        let last_hash = last_hash?;
         let mut prefix = Self::common_prefix(path_end, &self.key_nibbles);
         if self.key_nibbles[prefix..] >= path_end[prefix..] {
             return Ok(vec![]);
@@ -365,7 +367,9 @@ impl<'a> DiskTrieIterator<'a> {
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    self.descend_into_node(&hash)?;
+                    let r = self.descend_into_node(&hash);
+                    println!("visit_nodes_interval descend {}: {:?}", &hash, &r);
+                    r?;
                     nodes_list.push(TrieTraversalItem { hash, key: None });
                 }
                 IterStep::Continue => {}
@@ -373,7 +377,9 @@ impl<'a> DiskTrieIterator<'a> {
                     if self.key_nibbles[prefix..] >= path_end[prefix..] {
                         break;
                     }
-                    self.trie.retrieve_value(&hash)?;
+                    let r = self.trie.retrieve_value(&hash);
+                    println!("visit_nodes_interval retrieve {}: {:?}", &hash, &r);
+                    r?;
                     nodes_list.push(TrieTraversalItem {
                         hash,
                         key: self.has_value().then(|| self.key()),

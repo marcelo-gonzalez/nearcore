@@ -463,6 +463,16 @@ impl NightshadeRuntime {
                 return Err(err.into());
             }
         };
+        println!("begin:\n{:?}\nend:\n{:?}", &nibbles_begin, &nibbles_end);
+        println!("nodes:");
+        match &partial_state {
+            near_primitives::challenge::PartialState::TrieValues(v) => {
+                for val in v.iter() {
+                    println!("{:?}", val);
+                }
+            }
+        }
+        println!("==========");
 
         // TODO: Make it impossible for the snapshot data to be deleted while the snapshot is in use.
         let snapshot_trie = self
