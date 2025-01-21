@@ -131,6 +131,8 @@ pub enum StateViewerSubCommand {
     /// Tools for printing and recalculating the congestion information.
     #[clap(subcommand)]
     CongestionControl(CongestionControlCmd),
+
+    ViewFlat(ViewFlatCmd),
 }
 
 impl StateViewerSubCommand {
@@ -195,6 +197,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::StateWitness(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::CongestionControl(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::ViewFlat(cmd) => cmd.run(home_dir, near_config, store),
         }
     }
 }
@@ -281,6 +284,19 @@ impl ApplyChunkCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
         apply_chunk(home_dir, near_config, store, hash, self.target_height, self.storage).unwrap()
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct ViewFlatCmd {
+    #[clap(long)]
+    snapshot_hash: Option<String>,
+}
+
+impl ViewFlatCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        let hash = self.snapshot_hash.map(|h| CryptoHash::from_str(&h).unwrap());
+        view_flat(home_dir, near_config, store, hash).unwrap()
     }
 }
 

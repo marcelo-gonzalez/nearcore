@@ -214,6 +214,69 @@ pub(crate) fn apply_block_at_height(
     result
 }
 
+pub(crate) fn view_flat(
+    home_dir: &Path,
+    near_config: NearConfig,
+    store: Store,
+    snapshot_hash: Option<CryptoHash>,
+) -> anyhow::Result<()> {
+    let epoch_manager =
+        EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config, Some(home_dir));
+    let runtime = NightshadeRuntime::from_config(
+        home_dir,
+        store.clone(),
+        &near_config,
+        epoch_manager.clone(),
+    )
+    .context("could not create the transaction runtime")?;
+
+    let tries = runtime.get_tries();
+
+    if let Some(snapshot_hash) = snapshot_hash {
+        let layout = epoch_manager
+            .get_shard_layout_from_prev_block(&snapshot_hash)
+            .context("get shard layout")?;
+        let c = tries.state_snapshot_config();
+        let dir = near_store::ShardTries::get_state_snapshot_base_dir(&snapshot_hash, &c.home_dir,
+            &c.hot_store_path,
+            &c.state_snapshot_subdir);
+
+        println!("opening DB at {}", dir.display());
+        let store_opener = near_store::NodeStorage::opener(
+            &dir,
+            &near_config.config.store,
+            near_config.config.archival_config(),
+        );
+
+        let storage = store_opener.open_in_mode(near_store::Mode::ReadOnly).unwrap();
+        let store = storage.get_hot_store();
+        let flat = near_store::adapter::flat_store::FlatStoreAdapter::new(store);
+        println!("snapshot DB flat storages at {}", &snapshot_hash);
+        for suid in layout.shard_uids() {
+            let status = flat.get_flat_storage_status(suid);
+            println!("{} -> {:?}", suid, status);
+        }
+    } else {
+        let chain_store = ChainStore::new(
+            store,
+            near_config.genesis.config.genesis_height,
+            near_config.client_config.save_trie_changes,
+            near_config.genesis.config.transaction_validity_period,
+        );
+        let head = chain_store.head().unwrap();
+        let layout = epoch_manager
+            .get_shard_layout_from_prev_block(&head.prev_block_hash)
+            .context("get shard layout")?;
+        let flat_storage_manager = tries.get_flat_storage_manager();
+        println!("main DB flat storages at head #{}", head.height);
+        for suid in layout.shard_uids() {
+            let status = flat_storage_manager.get_flat_storage_status(suid);
+            println!("{} -> {:?}", suid, status);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn apply_chunk(
     home_dir: &Path,
     near_config: NearConfig,
