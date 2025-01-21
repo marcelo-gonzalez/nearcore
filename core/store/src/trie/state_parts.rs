@@ -90,7 +90,7 @@ impl Trie {
     /// Helper to create iterator over flat storage entries corresponding to
     /// its head, shard for which trie was created and the range of keys given
     /// in nibbles.
-    fn iter_flat_state_entries<'a>(
+    pub fn iter_flat_state_entries<'a>(
         &'a self,
         nibbles_begin: Vec<u8>,
         nibbles_end: Vec<u8>,

@@ -160,7 +160,7 @@ pub struct TrieNodeWithSize {
 }
 
 impl TrieNodeWithSize {
-    fn from_raw(rc_node: RawTrieNodeWithSize) -> TrieNodeWithSize {
+    pub fn from_raw(rc_node: RawTrieNodeWithSize) -> TrieNodeWithSize {
         TrieNodeWithSize::new(TrieNode::new(rc_node.node), rc_node.memory_usage)
     }
 
@@ -1314,7 +1314,7 @@ impl Trie {
     /// [`Self::EMPTY_ROOT`] hash) aren’t stored in the database, they don’t
     /// have a bytes representation.  For those nodes the first return value
     /// will be `None`.
-    fn retrieve_node(
+    pub fn retrieve_node(
         &self,
         hash: &CryptoHash,
     ) -> Result<(Option<std::sync::Arc<[u8]>>, TrieNodeWithSize), StorageError> {

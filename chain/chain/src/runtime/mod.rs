@@ -38,6 +38,7 @@ use near_primitives::views::{
 use near_store::adapter::{StoreAdapter, StoreUpdateAdapter};
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
+use near_store::trie::{RawTrieNodeWithSize, TrieNodeWithSize};
 use near_store::{
     ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig,
     TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
@@ -479,6 +480,26 @@ impl NightshadeRuntime {
             .tries
             .get_trie_with_block_hash_for_shard_from_snapshot(shard_uid, *state_root, &prev_hash)
             .map_err(|err| Error::Other(err.to_string()))?;
+
+        for r in snapshot_trie.iter_flat_state_entries(vec![], vec![16]).unwrap() {
+            let (k, v) = r.unwrap();
+            match v {
+                near_primitives::state::FlatStateValue::Ref(value_ref) => {
+                    let v = trie_with_state.retrieve_node(&value_ref.hash);
+                    println!("xxxxxxx all {:?} Ref {} {:?}", &k, &value_ref.hash, v);
+                }
+                near_primitives::state::FlatStateValue::Inlined(value) => {
+                    let h = hash(&value);
+                    if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
+                        let node = TrieNodeWithSize::from_raw(node);
+                        println!("xxxxxxx all {:?} Inlined {} {:?}", &k, &h, &node);
+                    } else {
+                        println!("xxxxxxx all {:?} Inlined {} {:?}", &k, &h, &value);
+                    };
+                }
+            }
+        }
+
         let state_part = borsh::to_vec(&match snapshot_trie.get_trie_nodes_for_part_with_flat_storage(part_id, partial_state, nibbles_begin, nibbles_end, &trie_with_state) {
             Ok(partial_state) => partial_state,
             Err(err) => {
