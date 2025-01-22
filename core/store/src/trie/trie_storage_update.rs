@@ -249,7 +249,7 @@ impl TrieStorageUpdate<'_> {
                     let key = extension.to_vec();
                     let value = *value;
                     let value = self.flatten_value(value);
-                    println!("flatten_nodes Leaf {} {}", node, &value.hash);
+                    println!("flatten_nodes Leaf {} {:?} {}", node, &key, &value.hash);
                     RawTrieNode::Leaf(key, value)
                 }
             };

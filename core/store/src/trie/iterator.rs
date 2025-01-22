@@ -372,7 +372,11 @@ impl<'a> DiskTrieIterator<'a> {
             };
             match iter_step {
                 IterStep::PopTrail => {
-                    self.trail.pop();
+                    let p = self.trail.pop();
+                    println!(
+                        "visit_nodes_interval pop trail {:?} prefix {} -> {}",
+                        &p, prefix, prefix
+                    );
                     prefix = std::cmp::min(self.key_nibbles.len(), prefix);
                 }
                 IterStep::Descend(hash) => {
