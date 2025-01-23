@@ -761,7 +761,7 @@ impl ForkNetworkCommand {
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
 
                         let new_shard_id =
-                            shard_layout.account_id_to_shard_id(receipt.predecessor_id());
+                            shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         let new_shard_idx = shard_layout.get_shard_index(new_shard_id).unwrap();
 
                         storage_mutator.set_postponed_receipt(new_shard_idx, &receipt)?;
@@ -789,7 +789,7 @@ impl ForkNetworkCommand {
                         near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
 
                         let new_shard_id =
-                            shard_layout.account_id_to_shard_id(receipt.predecessor_id());
+                            shard_layout.account_id_to_shard_id(receipt.receiver_id());
                         let new_shard_idx = shard_layout.get_shard_index(new_shard_id).unwrap();
 
                         storage_mutator.set_delayed_receipt(new_shard_idx, &receipt)?;
