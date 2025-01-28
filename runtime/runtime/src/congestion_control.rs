@@ -823,6 +823,14 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
         self.new_delayed_gas = safe_add_gas(self.new_delayed_gas, gas)?;
         self.new_delayed_bytes = safe_add_gas(self.new_delayed_bytes, size)?;
         self.queue.push_back(trie_update, &receipt)?;
+        let indices = self.queue.indices();
+        println!(
+            "push receipt {} {} ({} {})",
+            apply_state.shard_id,
+            receipt.get_receipt().receipt_id(),
+            indices.first_index,
+            indices.next_available_index
+        );
         Ok(())
     }
 
@@ -845,7 +853,7 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
     pub(crate) fn pop(
         &mut self,
         trie_update: &mut TrieUpdate,
-        config: &RuntimeConfig,
+        apply_state: &ApplyState,
     ) -> Result<Option<ReceiptOrStateStoredReceipt>, RuntimeError> {
         // While processing receipts, we need to keep track of the gas and bytes
         // even for receipts that may be filtered out due to a resharding event
@@ -857,14 +865,30 @@ impl<'a> DelayedReceiptQueueWrapper<'a> {
             let Some(receipt) = self.queue.pop_front(trie_update)? else {
                 break;
             };
-            let delayed_gas = receipt_congestion_gas(&receipt, &config)?;
+            let delayed_gas = receipt_congestion_gas(&receipt, &apply_state.config)?;
             let delayed_bytes = receipt_size(&receipt)? as u64;
             self.removed_delayed_gas = safe_add_gas(self.removed_delayed_gas, delayed_gas)?;
             self.removed_delayed_bytes = safe_add_gas(self.removed_delayed_bytes, delayed_bytes)?;
 
+            let indices = self.queue.indices();
             // Track gas and bytes for receipt above and return only receipt that belong to the shard.
             if self.receipt_filter_fn(&receipt) {
+                println!(
+                    "pop receipt {} {} ({} {})",
+                    apply_state.shard_id,
+                    receipt.get_receipt().receipt_id(),
+                    indices.first_index,
+                    indices.next_available_index
+                );
                 return Ok(Some(receipt));
+            } else {
+                println!(
+                    "pop receipt (filtered out) {} {} ({} {})",
+                    apply_state.shard_id,
+                    receipt.get_receipt().receipt_id(),
+                    indices.first_index,
+                    indices.next_available_index
+                );
             }
         }
         Ok(None)

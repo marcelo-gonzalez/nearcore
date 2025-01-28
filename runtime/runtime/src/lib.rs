@@ -1895,7 +1895,7 @@ impl Runtime {
 
             let receipt = if let Some(receipt) = processing_state
                 .delayed_receipts
-                .pop(&mut processing_state.state_update, &processing_state.apply_state.config)?
+                .pop(&mut processing_state.state_update, &processing_state.apply_state)?
             {
                 receipt.into_receipt()
             } else {
