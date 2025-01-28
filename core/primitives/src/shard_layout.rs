@@ -364,10 +364,19 @@ impl ShardLayout {
     #[cfg(all(feature = "test_utils", feature = "rand"))]
     pub fn multi_shard(num_shards: NumShards, version: ShardVersion) -> Self {
         assert!(num_shards > 0, "at least 1 shard is required");
+        assert!(num_shards <= 27);
 
-        let boundary_accounts = (1..num_shards)
-            .map(|i| format!("test{}", i).parse().unwrap())
-            .collect::<Vec<AccountId>>();
+        let mut boundary_accounts = Vec::new();
+        for c in b'a'..=b'z' {
+            if boundary_accounts.len() as NumShards + 1 >= num_shards {
+                break;
+            }
+            let mut boundary_account = format!("{}", c as char);
+            while boundary_account.len() < AccountId::MIN_LEN {
+                boundary_account.push('0');
+            }
+            boundary_accounts.push(boundary_account.parse().unwrap());
+        }
 
         Self::multi_shard_custom(boundary_accounts, version)
     }
