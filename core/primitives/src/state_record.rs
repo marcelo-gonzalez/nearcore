@@ -106,10 +106,7 @@ impl StateRecord {
                 let receipt = ReceiptOrStateStoredReceipt::try_from_slice(&value)?.into_receipt();
                 Some(StateRecord::DelayedReceipt(Box::new(receipt)))
             }
-            _ => {
-                println!("key[0]: {} is unreachable", key[0]);
-                None
-            }
+            _ => None,
         })
     }
 
