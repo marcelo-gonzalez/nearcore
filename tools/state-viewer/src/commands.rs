@@ -726,6 +726,18 @@ struct TrieAccountStats {
     bad: HashMap<AccountId, HashMap<StateRecordDiscriminants, usize>>,
 }
 
+use near_o11y::metrics::{try_create_int_counter_vec, IntCounterVec};
+use std::sync::LazyLock;
+
+pub(crate) static TRIE_KEY_COUNT: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "near_sview_check_trie_key_count",
+        "how many",
+        &["shard_id", "status"],
+    )
+    .unwrap()
+});
+
 fn check_shard_trie(
     runtime: Arc<NightshadeRuntime>,
     shard_id: ShardId,
@@ -733,6 +745,7 @@ fn check_shard_trie(
     state_root: CryptoHash,
     shard_layout: ShardLayout,
 ) -> anyhow::Result<TrieAccountStats> {
+    let shard_str = shard_id.to_string();
     let trie = runtime.get_trie_for_shard(shard_id, &prev_hash, state_root, false).unwrap();
     let mut stats = TrieAccountStats::default();
 
@@ -740,6 +753,7 @@ fn check_shard_trie(
         let (key, value) = item.unwrap();
         let Some(record) = StateRecord::from_raw_key_value(&key, value) else {
             stats.not_parsed += 1;
+            TRIE_KEY_COUNT.with_label_values(&[&shard_str, "other-key"]).inc();
             continue;
         };
 
@@ -748,7 +762,9 @@ fn check_shard_trie(
 
         if account_shard == shard_id {
             stats.good += 1;
+            TRIE_KEY_COUNT.with_label_values(&[&shard_str, "ok"]).inc();
         } else {
+            TRIE_KEY_COUNT.with_label_values(&[&shard_str, "bad"]).inc();
             stats.num_bad += 1;
             let rtype: near_primitives::state_record::StateRecordDiscriminants = (&record).into();
 
@@ -761,7 +777,21 @@ fn check_shard_trie(
     Ok(stats)
 }
 
+use near_network::tcp::ListenerAddr;
+
+fn serve_metrics() {
+    let _sys = actix::System::new();
+    let arbiter = actix::Arbiter::new();
+    arbiter.spawn(async move {
+        let addr = ListenerAddr::new("0.0.0.0:3030".parse().unwrap());
+        if let Err(e) = near_jsonrpc::start_metrics_http_server(addr).await {
+            eprintln!("metrics HTTP server failed: {:?}", e);
+        }
+    });
+}
+
 pub(crate) fn check_trie(home_dir: &Path, near_config: NearConfig, store: Store) {
+    serve_metrics();
     let (epoch_manager, runtime, state_roots, header) =
         load_trie(store.clone(), home_dir, &near_config);
 

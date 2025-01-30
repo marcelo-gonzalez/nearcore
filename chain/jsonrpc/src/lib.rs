@@ -1718,6 +1718,19 @@ pub async fn start_http_for_readonly_debug_querying(
     Ok(())
 }
 
+pub async fn start_metrics_http_server(addr: ListenerAddr) -> Result<(), std::io::Error> {
+    let listener = HttpServer::new(move || {
+        App::new()
+            .wrap(get_cors(&["*".to_string()]))
+            .wrap(middleware::Logger::default())
+            .service(web::resource("/metrics").route(web::get().to(prometheus_handler)))
+    });
+
+    let server = listener.listen(addr.std_listener().unwrap())?;
+    server.workers(1).shutdown_timeout(5).disable_signals().run().await?;
+    Ok(())
+}
+
 fn tx_execution_status_meets_expectations(
     expected: &TxExecutionStatus,
     actual: &TxExecutionStatus,
