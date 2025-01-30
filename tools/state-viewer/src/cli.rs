@@ -96,6 +96,7 @@ pub enum StateViewerSubCommand {
     ScanDbColumn(ScanDbColumnCmd),
     /// Iterates over a trie and prints the StateRecords.
     State,
+    CheckTrie,
     /// Dumps or applies StateChanges.
     /// Experimental tool for shard shadowing development.
     StateChanges(StateChangesCmd),
@@ -186,6 +187,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
             StateViewerSubCommand::ScanDbColumn(cmd) => cmd.run(store),
             StateViewerSubCommand::State => state(home_dir, near_config, store),
+            StateViewerSubCommand::CheckTrie => check_trie(home_dir, near_config, store),
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),

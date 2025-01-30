@@ -715,6 +715,63 @@ pub(crate) fn print_chain(
     }
 }
 
+pub(crate) fn check_trie(home_dir: &Path, near_config: NearConfig, store: Store) {
+    let (epoch_manager, runtime, state_roots, header) =
+        load_trie(store.clone(), home_dir, &near_config);
+
+    let shard_layout = &epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
+    for (shard_index, state_root) in state_roots.iter().enumerate() {
+        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+        tracing::info!("check shard {}", shard_id);
+        let trie =
+            runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
+        let mut good = 0;
+        let mut not_parsed = 0;
+        let mut bad = HashMap::new();
+        let mut num_bad = 0;
+
+        for item in trie.disk_iter().unwrap() {
+            let (key, value) = item.unwrap();
+            let Some(record) = StateRecord::from_raw_key_value(&key, value) else {
+                not_parsed += 1;
+                continue;
+            };
+
+            let account_id = near_primitives::state_record::state_record_to_account_id(&record);
+            let account_shard = shard_layout.account_id_to_shard_id(account_id);
+
+            if account_shard == shard_id {
+                good += 1;
+            } else {
+                num_bad += 1;
+                let rtype: near_primitives::state_record::StateRecordDiscriminants =
+                    (&record).into();
+
+                let m: &mut HashMap<_, usize> = bad.entry(account_id.clone()).or_default();
+
+                let n = m.entry(rtype).or_default();
+                *n += 1;
+            }
+        }
+
+        println!("====== shard {} ======", shard_id);
+        println!("good {}", good);
+        println!("not parsed {}", not_parsed);
+        if num_bad > 0 {
+            println!("bad {} ({} accounts)", num_bad, bad.len());
+            for (account_id, m) in bad.iter().take(4) {
+                print!("{}: ", account_id,);
+
+                for (rtype, n) in m.iter() {
+                    print!("{:?}: {} ", rtype, n);
+                }
+                println!("");
+            }
+        }
+        std::io::stdout().flush().unwrap();
+    }
+}
+
 pub(crate) fn state(home_dir: &Path, near_config: NearConfig, store: Store) {
     let (epoch_manager, runtime, state_roots, header) = load_trie(store, home_dir, &near_config);
 
