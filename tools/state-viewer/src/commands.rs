@@ -715,51 +715,93 @@ pub(crate) fn print_chain(
     }
 }
 
+use near_primitives::state_record::StateRecordDiscriminants;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+
+#[derive(Default)]
+struct TrieAccountStats {
+    good: usize,
+    not_parsed: usize,
+    num_bad: usize,
+    bad: HashMap<AccountId, HashMap<StateRecordDiscriminants, usize>>,
+}
+
+fn check_shard_trie(
+    runtime: Arc<NightshadeRuntime>,
+    shard_id: ShardId,
+    prev_hash: CryptoHash,
+    state_root: CryptoHash,
+    shard_layout: ShardLayout,
+) -> anyhow::Result<TrieAccountStats> {
+    let trie = runtime.get_trie_for_shard(shard_id, &prev_hash, state_root, false).unwrap();
+    let mut stats = TrieAccountStats::default();
+
+    for item in trie.disk_iter().unwrap() {
+        let (key, value) = item.unwrap();
+        let Some(record) = StateRecord::from_raw_key_value(&key, value) else {
+            stats.not_parsed += 1;
+            continue;
+        };
+
+        let account_id = near_primitives::state_record::state_record_to_account_id(&record);
+        let account_shard = shard_layout.account_id_to_shard_id(account_id);
+
+        if account_shard == shard_id {
+            stats.good += 1;
+        } else {
+            stats.num_bad += 1;
+            let rtype: near_primitives::state_record::StateRecordDiscriminants = (&record).into();
+
+            let m: &mut HashMap<_, usize> = stats.bad.entry(account_id.clone()).or_default();
+
+            let n = m.entry(rtype).or_default();
+            *n += 1;
+        }
+    }
+    Ok(stats)
+}
+
 pub(crate) fn check_trie(home_dir: &Path, near_config: NearConfig, store: Store) {
     let (epoch_manager, runtime, state_roots, header) =
         load_trie(store.clone(), home_dir, &near_config);
 
     let shard_layout = &epoch_manager.get_shard_layout(header.epoch_id()).unwrap();
-    for (shard_index, state_root) in state_roots.iter().enumerate() {
-        let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
-        tracing::info!("check shard {}", shard_id);
-        let trie =
-            runtime.get_trie_for_shard(shard_id, header.prev_hash(), *state_root, false).unwrap();
-        let mut good = 0;
-        let mut not_parsed = 0;
-        let mut bad = HashMap::new();
-        let mut num_bad = 0;
 
-        for item in trie.disk_iter().unwrap() {
-            let (key, value) = item.unwrap();
-            let Some(record) = StateRecord::from_raw_key_value(&key, value) else {
-                not_parsed += 1;
-                continue;
-            };
+    let roots = state_roots
+        .into_iter()
+        .enumerate()
+        .map(|(shard_index, state_root)| {
+            let shard_id = shard_layout.get_shard_id(shard_index).unwrap();
+            (shard_id, state_root)
+        })
+        .collect::<Vec<_>>();
 
-            let account_id = near_primitives::state_record::state_record_to_account_id(&record);
-            let account_shard = shard_layout.account_id_to_shard_id(account_id);
+    let (tx, rx) = std::sync::mpsc::channel();
 
-            if account_shard == shard_id {
-                good += 1;
-            } else {
-                num_bad += 1;
-                let rtype: near_primitives::state_record::StateRecordDiscriminants =
-                    (&record).into();
-
-                let m: &mut HashMap<_, usize> = bad.entry(account_id.clone()).or_default();
-
-                let n = m.entry(rtype).or_default();
-                *n += 1;
+    roots.into_par_iter().for_each_with(tx, |tx, (shard_id, state_root)| {
+        let stats = check_shard_trie(
+            runtime.clone(),
+            shard_id,
+            *header.prev_hash(),
+            state_root,
+            shard_layout.clone(),
+        );
+        tx.send((shard_id, stats)).unwrap();
+    });
+    for (shard_id, stats) in rx {
+        let stats = match stats {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("error checking shard {} trie: {:?}", shard_id, e);
+                panic!("bad");
             }
-        }
-
+        };
         println!("====== shard {} ======", shard_id);
-        println!("good {}", good);
-        println!("not parsed {}", not_parsed);
-        if num_bad > 0 {
-            println!("bad {} ({} accounts)", num_bad, bad.len());
-            for (account_id, m) in bad.iter().take(4) {
+        println!("good {}", stats.good);
+        println!("not parsed {}", stats.not_parsed);
+        if stats.num_bad > 0 {
+            println!("bad {} ({} accounts)", stats.num_bad, stats.bad.len());
+            for (account_id, m) in stats.bad.iter().take(4) {
                 print!("{}: ", account_id,);
 
                 for (rtype, n) in m.iter() {
