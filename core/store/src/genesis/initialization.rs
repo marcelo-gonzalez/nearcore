@@ -54,8 +54,10 @@ pub fn initialize_sharded_genesis_state(
             genesis_height, genesis.config.genesis_height,
             "Genesis height in store is different from the one in genesis config"
         );
+        println!("initialize_sharded_genesis_state already stored");
         return;
     } else {
+        println!("initialize_sharded_genesis_state not already stored");
         let has_dump = home_dir.is_some_and(|dir| dir.join(STATE_DUMP_FILE).exists());
         let state_roots = if has_dump {
             if let GenesisContents::Records { .. } = &genesis.contents {

@@ -10,8 +10,10 @@ use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::resharding_v2::ReshardingV2Command;
 use crate::run_migrations::RunMigrationsCommand;
+use crate::set_genesis_height::SetGenesisHeightCommand;
 use crate::state_perf::StatePerfCommand;
 use crate::write_to_db::WriteCryptoHashCommand;
+
 use clap::Parser;
 use near_chain_configs::GenesisValidationMode;
 use std::path::PathBuf;
@@ -64,6 +66,8 @@ enum SubCommand {
 
     /// Perform on demand resharding V2
     Resharding(ReshardingV2Command),
+
+    SetGenesisHeight(SetGenesisHeightCommand),
 }
 
 impl DatabaseCommand {
@@ -93,6 +97,7 @@ impl DatabaseCommand {
                 let near_config = load_config(home, genesis_validation);
                 cmd.run(near_config, home)
             }
+            SubCommand::SetGenesisHeight(cmd) => cmd.run(home, genesis_validation),
         }
     }
 }

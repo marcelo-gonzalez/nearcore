@@ -12,6 +12,7 @@ mod make_snapshot;
 mod memtrie;
 mod resharding_v2;
 mod run_migrations;
+mod set_genesis_height;
 mod state_perf;
 mod utils;
 mod write_to_db;
