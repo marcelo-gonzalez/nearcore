@@ -85,6 +85,7 @@ pub enum StateViewerSubCommand {
     /// Looks up a certain partial chunk.
     #[clap(alias = "partial_chunks")]
     PartialChunks(PartialChunksCmd),
+    Peers(PeersCmd),
     /// Looks up a certain receipt.
     Receipts(ReceiptsCmd),
     /// Replay block headers from chain.
@@ -181,6 +182,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::EpochInfo(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::EpochAnalysis(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::PartialChunks(cmd) => cmd.run(near_config, store),
+            StateViewerSubCommand::Peers(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::Receipts(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ReplayHeaders(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::RocksDBStats(cmd) => cmd.run(store_opener.path()),
@@ -231,6 +233,18 @@ pub enum SaveTrieTemperature {
     // trie nodes in the hot storage.
     // Hot,
     Cold,
+}
+
+#[derive(clap::Parser)]
+pub struct PeersCmd {
+    #[clap(long)]
+    delete: bool,
+}
+
+impl PeersCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        peers_cmd(home_dir, near_config, store, self.delete).unwrap();
+    }
 }
 
 #[derive(clap::Parser)]
