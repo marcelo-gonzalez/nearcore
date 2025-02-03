@@ -758,7 +758,7 @@ impl StateDumper {
             .collect::<HashMap<_, _>>();
         let mut empty_shards = HashSet::new();
         // cspell:words uploaders
-        let uploaders = dump
+        let mut uploaders = dump
             .dump_state
             .iter()
             .filter_map(|(shard_id, shard_dump)| {
@@ -794,13 +794,15 @@ impl StateDumper {
         }
         assert_eq!(senders.len(), uploaders.len());
 
+        uploaders.sort_by_key(|u| Into::<u64>::into(u.shard_id));
+
         let mut tasks = uploaders
             .iter()
             .map(|u| (0..u.num_parts).map(|part_id| (u.clone(), part_id)))
             .flatten()
             .collect::<Vec<_>>();
         // We randomize so different nodes uploading parts don't try to upload in the same order
-        tasks.shuffle(&mut thread_rng());
+        //tasks.shuffle(&mut thread_rng());
 
         let future_spawner = self.future_spawner.clone();
         let fut = async move {

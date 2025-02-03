@@ -1089,6 +1089,11 @@ impl RuntimeAdapter for NightshadeRuntime {
             ?state_root,
             num_parts = part_id.total)
         .entered();
+        if shard_id == ShardId::new(0) && part_id.idx > 5 {
+            return Err(Error::Other(String::from("aaah")));
+        } else {
+            return Ok(vec![0; 1024]);
+        }
         let instant = Instant::now();
         let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_id);
         let elapsed = instant.elapsed();
