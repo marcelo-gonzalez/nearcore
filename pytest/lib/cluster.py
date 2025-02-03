@@ -878,7 +878,7 @@ def init_cluster(
     binary_path = os.path.join(near_root, binary_name)
 
     if extra_state_dumper:
-        num_observers += 1
+        num_observers += 2
 
     logger.info("Creating %s cluster configuration with %s nodes" %
                 ("LOCAL" if is_local else "REMOTE", num_nodes + num_observers))
@@ -924,11 +924,12 @@ def init_cluster(
         (node_config_dump,
          node_config_sync) = state_sync_lib.get_state_sync_configs_pair(
              tracked_shards=None)
-        syncing_nodes = node_dirs[:-1]
-        dumper_node = node_dirs[-1]
+        syncing_nodes = node_dirs[:-2]
+        dumper_nodes = node_dirs[-2:]
         for node_dir in syncing_nodes:
             apply_config_changes(node_dir, node_config_sync)
-        apply_config_changes(dumper_node, node_config_dump)
+        for node_dir in dumper_nodes:
+            apply_config_changes(node_dir, node_config_dump)
 
     # apply config changes
     for i, node_dir in enumerate(node_dirs):
