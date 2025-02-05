@@ -220,6 +220,62 @@ impl IncomingRequests {
 struct InFlightMessage {
     message: Message,
     sent_at: tokio::time::Instant,
+    sent_id: std::thread::ThreadId,
+    req_received: Option<(near_time::Instant, std::thread::ThreadId)>,
+}
+
+impl InFlightMessage {
+    fn times(&self) -> Times {
+        let sent_at = std::time::Instant::now();
+        Times {
+            message: format!("{}", &self.message),
+            sent_at,
+            queued_at: self.sent_at,
+            queued_id: self.sent_id,
+            req_received: self.req_received,
+        }
+    }
+}
+
+struct Times {
+    message: String,
+    sent_at: std::time::Instant,
+    queued_at: tokio::time::Instant,
+    queued_id: std::thread::ThreadId,
+    req_received: Option<(near_time::Instant, std::thread::ThreadId)>,
+}
+
+impl Times {
+    fn debug_str(&self) -> String {
+        let now = std::time::Instant::now();
+        let queued_at = self.queued_at.into_std();
+        let tid = std::thread::current().id();
+        match self.req_received {
+            Some((req_received, recv_id)) => {
+                let req_received: std::time::Instant = req_received.try_into().unwrap();
+                format!(
+                    "{}  {:?} recv -> {:?} -> {:?} queued -> {:?} -> {:?} send start -> {:?} sent",
+                    &self.message,
+                    recv_id,
+                    queued_at - req_received,
+                    self.queued_id,
+                    self.sent_at - queued_at,
+                    tid,
+                    now - self.sent_at,
+                )
+            }
+            None => {
+                format!(
+                    "{} {:?} queued -> {:?} -> {:?} send start -> {:?} sent",
+                    &self.message,
+                    self.queued_id,
+                    now - queued_at,
+                    tid,
+                    now - self.sent_at
+                )
+            }
+        }
+    }
 }
 
 // type that simulates network latency by waiting for `response_delay`
@@ -241,7 +297,11 @@ impl InFlightMessages {
         }
     }
 
-    fn queue_message(self: Pin<&mut Self>, message: Message) {
+    fn queue_message(
+        self: Pin<&mut Self>,
+        message: Message,
+        req_received: Option<(near_time::Instant, std::thread::ThreadId)>,
+    ) {
         let me = self.project();
         let now = tokio::time::Instant::now();
         if me.messages.is_empty() {
@@ -252,12 +312,17 @@ impl InFlightMessages {
             &message,
             me.response_delay
         );
-        me.messages.push_back(InFlightMessage { message, sent_at: now });
+        me.messages.push_back(InFlightMessage {
+            message,
+            sent_at: now,
+            sent_id: std::thread::current().id(),
+            req_received,
+        });
     }
 }
 
 impl Future for InFlightMessages {
-    type Output = Message;
+    type Output = InFlightMessage;
 
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         if self.messages.is_empty() {
@@ -272,7 +337,7 @@ impl Future for InFlightMessages {
                         // the time til the next message gets delivered accordingly.
                         me.next_delivery.as_mut().reset(m.sent_at + *me.response_delay);
                     }
-                    Poll::Ready(msg.message)
+                    Poll::Ready(msg)
                 }
                 Poll::Pending => Poll::Pending,
             }
@@ -314,11 +379,11 @@ impl MockPeer {
     fn handle_message(
         &self,
         conn: &Connection,
-        message: std::io::Result<Message>,
+        message: std::io::Result<(Message, near_time::Instant)>,
         outbound: Pin<&mut InFlightMessages>,
     ) -> anyhow::Result<bool> {
-        let message = match message {
-            Ok(m) => m,
+        let (message, received_at) = match message {
+            Ok((m, t)) => (m, (t, std::thread::current().id())),
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::UnexpectedEof {
                     tracing::info!("{:?} disconnected", &conn);
@@ -342,15 +407,20 @@ impl MockPeer {
                         .with_context(|| {
                             format!("failed retrieving block headers up to {}", self.current_height)
                         })?;
-                        outbound
-                            .queue_message(Message::Direct(DirectMessage::BlockHeaders(headers)));
+                        outbound.queue_message(
+                            Message::Direct(DirectMessage::BlockHeaders(headers)),
+                            Some(received_at),
+                        );
                     }
                     DirectMessage::BlockRequest(hash) => {
                         let block = self
                             .chain
                             .get_block(&hash)
                             .with_context(|| format!("failed getting block {}", &hash))?;
-                        outbound.queue_message(Message::Direct(DirectMessage::Block(block)));
+                        outbound.queue_message(
+                            Message::Direct(DirectMessage::Block(block)),
+                            Some(received_at),
+                        );
                     }
                     _ => {}
                 };
@@ -369,9 +439,10 @@ impl MockPeer {
                                 &request
                             )
                         })?;
-                        outbound.queue_message(Message::Routed(
-                            RoutedMessage::PartialEncodedChunkResponse(response),
-                        ));
+                        outbound.queue_message(
+                            Message::Routed(RoutedMessage::PartialEncodedChunkResponse(response)),
+                            Some(received_at),
+                        );
                     }
                     // TODO: add state sync requests to possible request types so we can either
                     // respond or just exit, saying we don't know how to do that
@@ -427,20 +498,21 @@ impl MockPeer {
         loop {
             tokio::select! {
                 res = conn.recv() => {
-                    if !self.handle_message(&conn, res.map(|m| m.0), messages.as_mut())? {
+                    if !self.handle_message(&conn, res, messages.as_mut())? {
                         return Ok(());
                     }
                 }
                 msg = &mut messages => {
-                    tracing::debug!("mock peer sending message {}", &msg);
-                    match msg {
+                    let times = msg.times();
+                    match msg.message {
                         Message::Direct(msg) => conn.send_message(msg).await?,
                         Message::Routed(msg) => conn.send_routed_message(msg, conn.peer_id().clone(), 100).await?,
                     };
+                    tracing::debug!("mock peer sending message to {} {}", conn.peer_addr(), times.debug_str());
                 }
                 msg = self.incoming_message(target_height) => {
                     let msg = msg?;
-                    messages.as_mut().queue_message(msg);
+                    messages.as_mut().queue_message(msg, None);
                 }
             }
         }

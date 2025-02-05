@@ -527,6 +527,10 @@ impl Connection {
         }
     }
 
+    pub fn peer_addr(&self) -> std::net::SocketAddr {
+        self.stream.stream.peer_addr
+    }
+
     pub fn peer_id(&self) -> &PeerId {
         &self.peer_id
     }
