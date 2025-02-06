@@ -85,7 +85,7 @@ pub fn setup_mock_node(
         &near_config.config.store,
         near_config.config.archival_config(),
     )
-    .open()
+    .open_in_mode(near_store::Mode::ReadOnly)
     .context("failed opening storage")?
     .get_hot_store();
     let epoch_manager =
