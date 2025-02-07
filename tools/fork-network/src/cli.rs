@@ -142,6 +142,28 @@ fn make_state_roots_key(shard_id: ShardId) -> Vec<u8> {
     format!("{FORKED_ROOTS_KEY_PREFIX}{shard_id}").into_bytes()
 }
 
+fn print_db(store: &Store, print_path: &std::path::Path) {
+    use std::io::Write;
+    let mut f = std::fs::File::create(print_path).unwrap();
+    let mut stats = std::collections::HashMap::new();
+    for col in DBCol::iter() {
+        let mut n = 0;
+        let mut kbytes = 0;
+        let mut vbytes = 0;
+        for r in store.iter(col) {
+            let (k, v) = r.unwrap();
+            n += 1;
+            kbytes += k.len();
+            vbytes += v.len();
+        }
+        stats.insert(col, (n, kbytes, vbytes));
+    }
+    for col in DBCol::iter() {
+        let (n, kbytes, vbytes) = stats.get(&col).unwrap();
+        write!(f, "{}: {} {} {}\n", col, n, kbytes, vbytes).unwrap();
+    }
+}
+
 #[derive(clap::Parser)]
 struct ResetCmd;
 
@@ -334,6 +356,8 @@ impl ForkNetworkCommand {
             store_update.set_ser(DBCol::Misc, &make_state_roots_key(*shard_id), state_root)?;
         }
         store_update.commit()?;
+        eprintln!("init cols");
+        print_db(&store, &home_dir.join("init-db-values.txt"));
         Ok(())
     }
 
@@ -463,6 +487,7 @@ impl ForkNetworkCommand {
         let store = storage.get_hot_store();
 
         tracing::info!("Delete unneeded columns in the original DB");
+        print_db(&store, &home_dir.join("finalize-pre-db-values.txt"));
         let mut update = store.store_update();
         for col in DBCol::iter() {
             match col {
@@ -471,6 +496,8 @@ impl ForkNetworkCommand {
             }
         }
         update.commit()?;
+        tracing::info!("Deleted unneeded columns in the original DB");
+        print_db(&store, &home_dir.join("finalize-post-db-values.txt"));
         Ok(())
     }
 
