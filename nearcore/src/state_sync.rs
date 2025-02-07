@@ -138,6 +138,7 @@ impl StateSyncDumper {
             let arbiter = Arbiter::new();
             assert!(arbiter.spawn(future));
             Box::new(move || {
+                tracing::info!(target: "state_sync_dump", "arbiter_dump_future_runner stop");
                 arbiter.stop();
             })
         })
@@ -352,6 +353,10 @@ impl PartUploader {
     /// Semaphore. For now, this always returns OK(()) (loops forever retrying in case of errors), but this should be changed
     /// to return Err() if the error is not going to be retryable.
     async fn upload_state_part(self: Arc<Self>, part_idx: u64) -> anyhow::Result<()> {
+        if self.epoch_id != EpochId::default() && self.epoch_height == 1 && self.shard_id == 0 && part_idx == 5 {
+            nix::sys::signal::raise(nix::sys::signal::Signal::SIGINT).unwrap();
+            tracing::info!(target: "state_sync_dump", "raise it");
+        }
         if !self.parts_missing.read().unwrap().contains(&part_idx) {
             self.inc_parts_dumped();
             return Ok(());
@@ -440,7 +445,7 @@ impl PartUploader {
     ) {
         let mut parts = (0..self.num_parts).collect::<Vec<_>>();
         // We randomize so different nodes uploading parts don't try to upload in the same order
-        parts.shuffle(&mut thread_rng());
+        //parts.shuffle(&mut thread_rng());
 
         let mut tasks = tokio_stream::iter(parts)
             .map(|part_id| {

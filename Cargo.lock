@@ -5494,6 +5494,7 @@ dependencies = [
  "near-store",
  "near-telemetry",
  "near-vm-runner",
+ "nix 0.24.3",
  "node-runtime",
  "num-rational 0.3.2",
  "primitive-types 0.10.1",

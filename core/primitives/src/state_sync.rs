@@ -277,7 +277,7 @@ impl ShardStateSyncResponseV1 {
 pub const STATE_PART_MEMORY_LIMIT: bytesize::ByteSize = bytesize::ByteSize(30 * bytesize::MIB);
 
 pub fn get_num_state_parts(memory_usage: u64) -> u64 {
-    (memory_usage + STATE_PART_MEMORY_LIMIT.as_u64() - 1) / STATE_PART_MEMORY_LIMIT.as_u64()
+    20
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, serde::Serialize, ProtocolSchema)]

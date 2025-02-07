@@ -1088,6 +1088,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             ?state_root,
             num_parts = part_id.total)
         .entered();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        return Ok(vec![0; 100]);
         let instant = Instant::now();
         let res = self.obtain_state_part_impl(shard_id, prev_hash, state_root, part_id);
         let elapsed = instant.elapsed();
