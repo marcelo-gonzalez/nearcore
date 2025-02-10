@@ -218,6 +218,14 @@ fn format_key_and_value<'a>(
             Box::new(get_block_shard_uid_rev(key).unwrap()),
             Box::new(TrieChanges::try_from_slice(value).unwrap()),
         ),
+        DBCol::StateSyncHashes => (
+            Box::new(EpochId::try_from_slice(key).unwrap()),
+            Box::new(CryptoHash::try_from_slice(value).unwrap()),
+        ),
+        DBCol::StateSyncNewChunks => (
+            Box::new(CryptoHash::try_from_slice(key).unwrap()),
+            Box::new(Vec::<u8>::try_from_slice(value).unwrap()),
+        ),
         _ => (Box::new(key), Box::new(value)),
     }
 }
