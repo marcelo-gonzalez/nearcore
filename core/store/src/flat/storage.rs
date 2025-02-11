@@ -368,6 +368,13 @@ impl FlatStorage {
     ) -> Result<(), FlatStorageError> {
         let mut guard = self.0.write().expect(crate::flat::POISONED_LOCK_ERR);
         if !guard.move_head_enabled {
+            let metadata = guard.deltas.get(&block_hash);
+            eprintln!(
+                "update_flat_head_impl disabled {} head {} want {:?}",
+                guard.shard_uid,
+                guard.flat_head.height,
+                metadata.map(|m| m.metadata.block.height)
+            );
             return Ok(());
         }
 
@@ -426,6 +433,7 @@ impl FlatStorage {
             }
 
             store_update.commit().unwrap();
+            eprintln!("update_flat_head_impl {} #{}", shard_id, block_height);
             debug!(target: "store", %shard_id, %block_hash, %block_height, "Moved flat storage head");
         }
         guard.update_delta_metrics();
@@ -488,6 +496,11 @@ impl FlatStorage {
     pub(crate) fn get_head_hash(&self) -> CryptoHash {
         let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
         guard.flat_head.hash
+    }
+
+    pub(crate) fn get_head_height(&self) -> BlockHeight {
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        guard.flat_head.height
     }
 
     pub(crate) fn shard_uid(&self) -> ShardUId {

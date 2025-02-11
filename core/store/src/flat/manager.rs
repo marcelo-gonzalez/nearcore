@@ -305,10 +305,12 @@ impl FlatStorageManager {
             *want_snapshot = Some(min_chunk_prev_height);
         }
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        let mut heads = vec![];
         for flat_storage in flat_storages.values() {
             flat_storage.set_flat_head_update_mode(false);
+            heads.push(flat_storage.get_head_height());
         }
-        tracing::debug!(target: "store", "Locked flat head updates");
+        eprintln!("Locked flat head updates want {} heads: {:?}", min_chunk_prev_height, heads);
     }
 
     /// Should be called when we're done taking a state snapshot. Allows flat head updates, and signals to any resharding
@@ -322,7 +324,7 @@ impl FlatStorageManager {
         for flat_storage in flat_storages.values() {
             flat_storage.set_flat_head_update_mode(true);
         }
-        tracing::debug!(target: "store", "Unlocked flat head updates");
+        eprintln!("Unlocked flat head updates");
     }
 
     // Returns Some() if a state snapshot should be taken, and therefore any resharding flat storage code should not advance
