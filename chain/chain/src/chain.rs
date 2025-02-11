@@ -3392,9 +3392,17 @@ impl Chain {
             StateSnapshotType::EveryEpoch => {
                 if !ProtocolFeature::CurrentEpochStateSync.enabled(protocol_version) {
                     if is_epoch_boundary {
+                        tracing::info!(
+                            target: "chain", "should_make_or_delete_snapshot {} #{} v {} old boundary",
+                            &head.last_block_hash, head.height, protocol_version,
+                        );
                         // Here we return head.last_block_hash as the prev_hash of the first block of the next epoch
                         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
                     } else {
+                        tracing::info!(
+                            target: "chain", "should_make_or_delete_snapshot {} #{} v {} old not boundary",
+                            &head.last_block_hash, head.height, protocol_version,
+                        );
                         Ok(SnapshotAction::None)
                     }
                 } else {
@@ -3404,10 +3412,18 @@ impl Chain {
                         &head.prev_block_hash,
                     )?;
                     if is_sync_prev {
+                        tracing::info!(
+                            target: "chain", "should_make_or_delete_snapshot {} #{} v {} new sync prev",
+                            &head.last_block_hash, head.height, protocol_version,
+                        );
                         // Here the head block is the prev block of what the sync hash will be, and the previous
                         // block is the point in the chain we want to snapshot state for
                         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
                     } else {
+                        tracing::info!(
+                            target: "chain", "should_make_or_delete_snapshot {} #{} v {} new not sync prev",
+                            &head.last_block_hash, head.height, protocol_version,
+                        );
                         Ok(SnapshotAction::None)
                     }
                 }
