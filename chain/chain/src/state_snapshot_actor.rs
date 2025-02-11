@@ -145,7 +145,9 @@ impl StateSnapshotActor {
             return;
         }
 
-        tracing::debug!(target: "state_snapshot", prev_block_hash=?&msg.prev_block_hash, "Handle CreateSnapshotRequest");
+        eprintln!("Artificially delay CreateSnapshotRequest #{}", msg.block.header().height());
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        eprintln!("Handle CreateSnapshotRequest #{}", msg.block.header().height());
         let CreateSnapshotRequest {
             prev_block_hash,
             epoch_height,

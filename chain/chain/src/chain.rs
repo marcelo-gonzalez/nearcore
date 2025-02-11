@@ -3639,11 +3639,29 @@ impl Chain {
                         &head.prev_block_hash,
                     )?;
                     if is_sync_prev {
+                        eprintln!(
+                            "should_make_or_delete_snapshot normal snapshot #{}",
+                            head.height
+                        );
                         // Here the head block is the prev block of what the sync hash will be, and the previous
                         // block is the point in the chain we want to snapshot state for
                         Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
                     } else {
-                        Ok(SnapshotAction::None)
+                        let block_info =
+                            self.epoch_manager.get_block_info(&head.last_block_hash).unwrap();
+                        let first_block_height =
+                            self.get_block_header(block_info.epoch_first_block()).unwrap().height();
+                        let extra_snapshot = head.epoch_id != EpochId::default()
+                            && head.height < first_block_height + 3;
+                        if extra_snapshot {
+                            eprintln!(
+                                "should_make_or_delete_snapshot extra snapshot #{}",
+                                head.height
+                            );
+                            Ok(SnapshotAction::MakeSnapshot(head.last_block_hash))
+                        } else {
+                            Ok(SnapshotAction::None)
+                        }
                     }
                 }
             }
