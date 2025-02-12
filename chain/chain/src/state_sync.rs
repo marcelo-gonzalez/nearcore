@@ -220,6 +220,9 @@ pub(crate) fn is_sync_prev_hash<T: ChainStoreAccess>(
 ) -> Result<bool, Error> {
     if let Some(sync_hash) = chain_store.get_current_epoch_sync_hash(&tip.epoch_id)? {
         let sync_header = chain_store.get_block_header(&sync_hash)?;
+        if sync_header.prev_hash() == &tip.last_block_hash {
+            tracing::info!("is_sync_prev_hash sync hash already saved #{}", tip.height);
+        }
         return Ok(sync_header.prev_hash() == &tip.last_block_hash);
     }
     let store = chain_store.store();
@@ -234,5 +237,8 @@ pub(crate) fn is_sync_prev_hash<T: ChainStoreAccess>(
         return Ok(false);
     };
     let prev_done = prev_new_chunks.iter().all(|num_chunks| *num_chunks >= 2);
+    if !prev_done {
+        tracing::info!("is_sync_prev_hash sync hash not saved #{}", tip.height);
+    }
     Ok(!prev_done)
 }
