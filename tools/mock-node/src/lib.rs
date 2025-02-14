@@ -432,7 +432,7 @@ impl MockPeer {
                     }
                 }
                 msg = &mut messages => {
-                    tracing::debug!("mock peer sending message {}", &msg);
+                    tracing::debug!("mock peer sending message {:?}", &msg);
                     match msg {
                         Message::Direct(msg) => conn.send_message(msg).await?,
                         Message::Routed(msg) => conn.send_routed_message(msg, conn.peer_id().clone(), 100).await?,
