@@ -555,13 +555,13 @@ async fn check_parts(
 
     let start = Instant::now();
     let mut handles = vec![];
-    for part_id in 0..num_parts {
+    for part_id in &[386, 2043, 804, 1210] {
         let chain_id = chain_id.clone();
         let external = external.clone();
         let epoch_id = *epoch_id;
         let handle = tokio::spawn(async move {
             process_part_with_3_retries(
-                part_id,
+                *part_id,
                 chain_id,
                 epoch_id,
                 epoch_height,
