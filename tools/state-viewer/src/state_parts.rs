@@ -409,7 +409,13 @@ async fn load_state_parts(
                     PartId::new(part_id, num_parts),
                     &part
                 ));
-                tracing::info!(target: "state-parts", part_id, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), "Validated a state part");
+                let trie_nodes = BorshDeserialize::try_from_slice(&part).unwrap();
+                let trie_nodes_res = Trie::validate_state_part(
+                    &state_root,
+                    PartId::new(part_id, num_parts),
+                    trie_nodes,
+                );
+                tracing::info!(target: "state-parts", part_id, ?state_root, part_length = part.len(), elapsed_sec = timer.elapsed().as_secs_f64(), ?trie_nodes_res, "Validated a state part");
             }
             LoadAction::Print => {
                 print_state_part(&state_root, PartId::new(part_id, num_parts), &part)
@@ -508,6 +514,15 @@ async fn dump_state_parts(
             )
             .unwrap();
 
+        let v = chain.runtime_adapter.validate_state_part(
+            &state_root,
+            PartId::new(part_id, num_parts),
+            &state_part,
+        );
+        let trie_nodes = BorshDeserialize::try_from_slice(&state_part).unwrap();
+        let v2 =
+            Trie::validate_state_part(&state_root, PartId::new(part_id, num_parts), trie_nodes);
+        tracing::info!("xxxxxx validate {} {} {}: {} {:?}", shard_id, part_id, &state_root, v, v2);
         let file_type = StateFileType::StatePart { part_id, num_parts };
         let location = external_storage_location(
             &chain_id,

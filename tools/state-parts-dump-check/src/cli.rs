@@ -241,6 +241,7 @@ fn create_external_connection(
 }
 
 fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> bool {
+    eprintln!("vvvvvvvvv validate {} {:?} {}", state_root, &part_id, part.len());
     match BorshDeserialize::try_from_slice(part) {
         Ok(trie_nodes) => {
             match Trie::validate_state_part(state_root, part_id, trie_nodes) {
