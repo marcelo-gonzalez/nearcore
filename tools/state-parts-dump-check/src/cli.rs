@@ -896,6 +896,7 @@ async fn get_current_epoch_state_roots(
             Ok(block) => {
                 for chunk in block.chunks.iter() {
                     if chunk.height_included == height {
+                        eprintln!("ccccccccc yes {} {}", height, chunk.shard_id);
                         let Some(n) = num_new_chunks.get_mut(&chunk.shard_id) else {
                             anyhow::bail!(
                                 "bad shard ID {} in chunks for #{}",
@@ -904,10 +905,14 @@ async fn get_current_epoch_state_roots(
                             );
                         };
                         *n += 1;
+                    } else {
+                        eprintln!("ccccccccc no {} {}", height, chunk.shard_id);
                     }
                 }
                 if num_new_chunks.iter().all(|(_shard_id, new_chunks)| *new_chunks >= 2) {
-                    return Ok(Some(chunk_state_roots(&block.chunks)));
+                    let roots = chunk_state_roots(&block.chunks);
+                    eprintln!("ccccccccccc found it {}: {:?}", height, &roots);
+                    return Ok(Some(roots));
                 }
             }
             Err(e) => {
@@ -916,6 +921,7 @@ async fn get_current_epoch_state_roots(
                 {
                     if let Some(serde_json::Value::String(name)) = err.get("name") {
                         if name.as_str() == "UNKNOWN_BLOCK" {
+                            tracing::error!("ccccccccccc no block #{}", height);
                             continue;
                         }
                     }
