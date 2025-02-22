@@ -940,7 +940,7 @@ async fn get_current_epoch_state_roots(
 async fn get_processing_epoch_information(
     rpc_client: &JsonRpcClient,
 ) -> anyhow::Result<Option<DumpCheckIterInfo>> {
-    let block_reference = BlockReference::Finality(Finality::Final);
+    let block_reference = BlockReference::BlockId(BlockId::Hash("2BwbUnUujFj9csL6EKo4A3QV3gPT3CvXPTD1yPQBdVqL".parse().unwrap()));
     let latest_block_response = rpc_client
         .block(block_reference)
         .await
